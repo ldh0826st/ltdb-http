@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Official document for logback : https://logback.qos.ch/manual/appenders.html#RollingFileAppender -->
+<configuration>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <layout class="ch.qos.logback.classic.PatternLayout">
+            <!-- pattern 1 -->
+            <!--
+            <Pattern>%highlight( %d %class{0}:%line) - %msg%n</Pattern>
+            -->
+            <!-- pattern 2 (useful for debugging) -->
+            <Pattern>%highlight( %d{yyyy/MM/dd HH:mm:ss} [%thread] %-5level %class{$@}:%line) - %msg%n</Pattern>
+        </layout>
+    </appender>
+
+    <appender name="FILEOUT" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${root.path}/logs/ltdb-http.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${root.path}/logs/ltdb-http.log.%d{yyyy-MM-dd}</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy/MM/dd HH:mm:ss} [%thread] %-5level %class{$@}:%line - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="org.apache.hadoop.yarn.util" additivity="false">
+        <level value="error"/>
+        <appender-ref ref="Console"/>
+        <appender-ref ref="File"/>
+    </logger>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT" />
+        <appender-ref ref="FILEOUT"/>
+    </root>
+</configuration>

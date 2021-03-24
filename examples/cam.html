@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Ingest/Query Test</title>
+    <meta name="referrer" content="no-referrer-when-downgrade"/>
+
+    <script type="text/javascript" src="./js/browser-connector.js"></script>
+    <script type="text/javascript" src="./js/jquery-3.5.1.slim.min.js"></script>
+    <script type="text/javascript" src="./js/bootstrap-4.5.2.min.js"></script>
+    <script type="text/javascript" src="./js/highlight-10.1.2.min.js"></script>
+
+    <link rel="stylesheet" href="./css/bootstrap-4.5.2.min.css">
+    <link rel="stylesheet" href="./css/highlight-10.1.2.min.css">
+
+    <style>
+        .h1 {
+            /*font-size: 200%;*/
+            font-weight: bold;
+            color: #555;
+            font-family: "Arial Black";
+        }
+
+        .api {
+            border: 1px solid gray;
+            margin: .5em 0;
+            width: 1000px;
+            padding: 10px;
+        }
+
+        .key {
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .value {
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+<div id="title" align="center">
+    <br>
+    <p class="h1">Ingest/Query Test</p>
+    <br>
+</div>
+<div id="container" align="center">
+</div>
+
+<script type="text/javascript">
+    const port = 8080;
+    const container = document.getElementById("container");
+
+    function createSpan(div, key, value) {
+        let div2 = document.createElement("div");
+        let span1 = document.createElement("span");
+        span1.setAttribute("class", "key");
+        span1.textContent = key;
+        div2.appendChild(span1);
+        let span2 = document.createElement("span");
+        span2.setAttribute("class", "value");
+        span2.textContent = "\t" + value;
+        div2.appendChild(span2);
+        div.appendChild(div2);
+    }
+
+    function createDiv(url, description) {
+        let div = document.createElement("div");
+        div.setAttribute("class", "highlight api");
+        div.setAttribute("align", "left");
+        createSpan(div, "URL:", url);
+        createSpan(div, "Description:", description);
+        div.appendChild(document.createElement("br"));
+        let pre = document.createElement("pre");
+        // pre.setAttribute("class", "pre-scrollable");
+        // resultPre.setAttribute("id", functionName + "-result");
+        let code = document.createElement("code");
+        code.setAttribute("class", "json");
+        pre.appendChild(code);
+        div.appendChild(pre);
+
+        container.appendChild(div);
+        return code;
+    }
+
+    fetch("./data/cam3_sample.json")
+        .then(function (response) {
+            return response.json();
+        })
+        .then(function (data) {
+            function GetTables() {
+                const url = "http://127.0.0.1:" + port + "/ingest/tables";
+                fetch(url)
+                    .then(function (response) {
+                        return response.json()
+                    })
+                    .then(function (tables) {
+                        const div = createDiv(url + " (GET)", "Get Tables");
+                        div.textContent = tables;
+                        hljs.highlightBlock(div);
+
+                        tables.forEach(function (table) {
+                            GetTable(table)
+                        });
+                        GetModules();
+                    });
+            }
+
+            function GetTable(name) {
+                const url = "http://127.0.0.1:" + port + "/ingest/tables/" + name;
+                fetch(url)
+                    .then(function (response) {
+                        return response.json()
+                    })
+                    .then(function (table) {
+                        const div = createDiv(url + " (GET)", "Get Table Details");
+                        console.log(typeof (table))
+                        div.textContent = JSON.stringify(table, null, 2);
+                        hljs.highlightBlock(div);
+                    });
+            }
+
+            function GetModules() {
+                const url = "http://127.0.0.1:" + port + "/ingest/modules"
+                fetch(url)
+                    .then(function (response) {
+                        return response.json()
+                    })
+                    .then(function (modules) {
+                        const div = createDiv(url + " (GET)", "Get Modules");
+                        div.textContent = modules;
+                        hljs.highlightBlock(div);
+
+                        modules.forEach(function (module) {
+                            GetModule(module)
+                        });
+                    });
+            }
+
+            function GetModule(name) {
+                const url = "http://127.0.0.1:" + port + "/ingest/modules/" + name;
+                fetch(url)
+                    .then(function (response) {
+                        return response.text()
+                    })
+                    .then(function (module) {
+                        const div = createDiv(url + " (GET)", "Get Module Details");
+                        div.textContent = module;
+                        hljs.highlightBlock(div);
+
+                        insertRows();
+                    });
+            }
+
+            function insertRows() {
+                const url = "http://127.0.0.1:" + port + "/ingest/cam/cam";
+                fetch(url, {
+                    method: "PUT", // *GET, POST, PUT, DELETE, etc.
+                    mode: "cors",
+                    cache: "no-cache",
+                    body: JSON.stringify(data)
+                })
+                    .then(function (response) {
+                        return response.text()
+                    })
+                    .then(function (result) {
+                        const div = createDiv(url + " (PUT)", "Insert Rows");
+                        div.textContent = result;
+                        hljs.highlightBlock(div);
+
+                        queryRows();
+                    });
+            }
+
+            function queryRows() {
+                const url = "http://127.0.0.1:" + port + "/query";
+                const query = "SELECT * FROM cam LIMIT 2"
+                fetch(url, {
+                    method: "POST", // *GET, POST, PUT, DELETE, etc.
+                    mode: "cors",
+                    cache: "no-cache",
+                    body: query
+                })
+                    .then(function (response) {
+                        return response.json()
+                    })
+                    .then(function (result) {
+                        const div = createDiv(url + " (POST)", "Query Rows - " + query);
+                        div.textContent = JSON.stringify(result, null, 2);
+                        hljs.highlightBlock(div);
+                    });
+            }
+
+            new MapdCon()
+                .host("127.0.0.1")
+                .port(port)
+                .dbName("default")
+                .user("ltdb")
+                .password("ltdb")
+                .connectAsync()
+                .then((connector) => {
+                    const query = `
+                        CREATE TABLE IF NOT EXISTS cam
+                        (
+                            ID STRING,
+                            BBox ARRAY<INT>,
+                            Head ARRAY<INT>,
+                            Keypoints ARRAY<INT>
+                        )
+                            USING r2 OPTIONS
+                        (
+                            host 'st-dstb2-00',
+                            port 18100,
+                            table '104',
+                            mode 'nvkvs',
+                            partitions 'ID',
+                            rowstore 'false',
+                            at_least_one_partition_enabled 'no'
+                        )
+                    `;
+                    connector.queryAsync(query, {columnarResults: false}).then((result) => {
+                        console.log(result);
+                        GetTables();
+
+                        connector.queryAsync("SELECT COUNT(*) FROM cam", {columnarResults: false}).then((result) => {
+                            console.log(result);
+                        });
+
+                        connector.queryAsync("SELECT * FROM cam LIMIT 2", {columnarResults: false}).then((result) => {
+                            console.log(result);
+                        });
+                    });
+                });
+        });
+</script>
+</body>
+</html>
