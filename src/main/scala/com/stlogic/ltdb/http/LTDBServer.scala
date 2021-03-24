@@ -59,6 +59,9 @@ class LTDBServer extends Logging {
 
           val pcaServlet = new PcaServlet(ltdbServerConf)
           mount(context, pcaServlet, "/pca/*")
+
+          val occludedServlet = new OccludedServlet(ltdbServerConf)
+          mount(context, occludedServlet, "/occluded/*")
         }
       }
     )
