@@ -336,7 +336,8 @@ object SparkService extends Logging {
         .fit(scaledDf)
       val result = pca.transform(scaledDf).select("project_id", "instance_id", "feature_value_3d", "cropped_image_path")
       val time: Long = stopwatch.elapsed(TimeUnit.MILLISECONDS)
-      val output = "{" + result.toJSON.collectAsList() + ",{elapsed time:" + time + "}}"
+      val output = "{\"execution_time_ms\":" + time + ",\"rowset\":" + result.toJSON.collectAsList() + "}"
+
       return output
     } else {
       val time: Long = stopwatch.elapsed(TimeUnit.MILLISECONDS)
@@ -345,4 +346,53 @@ object SparkService extends Logging {
     }
   }
 
+  def executeOccluded(query: String): String= {
+    val GSON = new GsonBuilder().serializeNulls().serializeSpecialFloatingPointValues().create()
+    val stopwatch = Stopwatch.createStarted()
+    val spark:SparkSession = sparkSession
+    import spark.implicits._
+
+    // process query
+    val df = spark.sql(query)
+    var resultDf = Seq.empty[(Long,Boolean)].toDF("file_id", "Occluded")
+    var tmpDf = spark.emptyDataFrame
+    var df2 = spark.emptyDataFrame
+    var dfResult = spark.emptyDataFrame
+
+    val fileArray = df.select(df("file_id")).distinct.rdd.map(x=>x.mkString).collect
+
+    if (fileArray.length > 0) {
+      df.createOrReplaceTempView("occluded")
+      var it_file = 0
+      var occluded = false
+      while (it_file < fileArray.length) {
+        val fileDf = df.filter(df("file_id") === fileArray(it_file))
+        fileDf.createOrReplaceTempView("occluded")
+
+        val idArray = fileDf.selectExpr("instance_id").rdd.map(x=>x.mkString).collect
+        val regionArray = fileDf.selectExpr("region").rdd.map(x=>x.mkString).collect
+
+        var iterator = 0
+        occluded = false
+        while (occluded == false &&  iterator < idArray.length) {
+          df2 = spark.sql("select instance_id from occluded  where file_id = " + fileArray(it_file) + " and instance_id > " + idArray(iterator)  + " and " + "ST_Overlaps(st_geomFromWKT(region ),st_geomFromWKT('" + regionArray(iterator) + "')) = true")
+
+          if (df2.count() > 0) occluded = true
+          iterator = iterator + 1
+        }
+
+        tmpDf = Seq((fileArray(it_file), occluded)).toDF("file_id", "Occluded")
+        resultDf = resultDf.union(tmpDf)
+        it_file = it_file + 1
+      }
+
+      val time: Long = stopwatch.elapsed(TimeUnit.MILLISECONDS)
+      val output = "{\"execution_time_ms\":" + time + ",\"rowset\":" + resultDf.toJSON.collectAsList() + "}"
+      return output
+    } else {
+      val time: Long = stopwatch.elapsed(TimeUnit.MILLISECONDS)
+      val output = "{No result}"
+      return output
+    }
+  }
 }
