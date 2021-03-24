@@ -21,6 +21,10 @@ mvn clean package -DskipTests -P release,dist,tgz -Dsite-spec=``사이트명``
 -------------------------
 Build 후 target 폴더의 ltdb-http-1.0.``timestamp``.tar.gz 파일을 압축 해제
 
+아래 설정에 맞게 ltdb-http-1.0-SNAPSHOT-with-deps.jar 파일을 업로드 필요
+```
+ltdb.spark.yarn.jars=hdfs://BPP-TVIEW-AIOPS-SEARCH01:9001/tmp/ltdb-http-1.0-SNAPSHOT-with-deps.jar
+```
 
 ## Configuration
 
