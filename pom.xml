@@ -19,12 +19,12 @@
 
         <scala.version>2.11.12</scala.version>
         <scala.compat.version>2.11</scala.compat.version>
-        <spark.version>2.3.1</spark.version>
+        <spark.version>2.3.4</spark.version>
         <scalatest.version>2.2.1</scalatest.version>
         <scope>provided</scope>
 
         <geospark.version>1.1.3</geospark.version>
-        <ltdb.version>1.2.4-SNAPSHOT</ltdb.version>
+        <ltdb.version>1.3.1-SNAPSHOT</ltdb.version>
 
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
         <jetty.version>9.3.24.v20180605</jetty.version>
@@ -250,6 +250,12 @@
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-hive_${scala.compat.version}</artifactId>
             <version>${spark.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.fommil.netlib</groupId>
+            <artifactId>all</artifactId>
+            <version>1.1.2</version>
+            <type>pom</type>
         </dependency>
     </dependencies>
 
