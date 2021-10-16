@@ -6,6 +6,8 @@
 SCRIPTPATH=$(cd "$(dirname "$0")" && pwd)
 export LTDB_HTTP_HOME=$(cd $SCRIPTPATH/.. && pwd)
 
+. "${LTDB_HTTP_HOME}/bin/ltdb-http-env.sh"
+
 ##  Path to the pid, runnning info file
 pidfile=${PIDFILE-${LTDB_HTTP_HOME}/ltdb-http.pid}
 lockfile=${LOCKFILE-${LTDB_HTTP_HOME}/ltdb-http.lock}

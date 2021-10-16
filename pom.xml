@@ -493,7 +493,9 @@
                                             <resource>
                                                 <directory>${project.basedir}/bin</directory>
                                                 <includes>
+                                                    <include>ltdb-http-env.sh</include>
                                                     <include>ltdb-http.sh</include>
+                                                    <include>update-yarn-jar.sh</include>
                                                 </includes>
                                                 <targetPath>bin</targetPath>
                                                 <filtering>true</filtering>

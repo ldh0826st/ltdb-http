@@ -7,19 +7,21 @@ import com.google.common.io.BaseEncoding
 import com.google.gson.GsonBuilder
 import com.skt.spark.r2.kaetlyn.consumer.common.SchemaNotDefinedException
 import com.skt.spark.r2.util.Logging
+import com.stlogic.ltdb.common.VectorTileBuilder
 import com.stlogic.omnisci.thrift.server._
 import com.vividsolutions.jts.geom.Geometry
 import org.apache.hadoop.util.Shell
-import org.apache.spark.sql.catalyst.TableIdentifier
-import org.apache.spark.sql.r2.UDT.{GeometryUDTPublic, PointUDT}
-import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Dataset, Row, SparkSession}
-
 import org.apache.spark.ml.feature.{PCA, StandardScaler}
 import org.apache.spark.ml.linalg.Vectors
+import org.apache.spark.sql.{Row, SparkSession}
+import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.functions.udf
+import org.apache.spark.sql.r2.UDF.R2UDFs
+import org.apache.spark.sql.r2.UDT.{GeometryUDTPublic, PointUDT}
+import org.apache.spark.sql.types._
 
 import java.io.File
+import java.nio.ByteBuffer
 import java.util
 import java.util.Date
 import java.util.concurrent.TimeUnit
@@ -34,6 +36,8 @@ object SparkService extends Logging {
   private var initialized: Boolean = _
   private val tableCache: LoadingCache[String, (StructType, Map[String, String])] =
     CacheBuilder.newBuilder().maximumSize(10000).expireAfterAccess(5 * 60, TimeUnit.SECONDS).build(new TableCacheLoader)
+  private val iteratorCache: LoadingCache[String, (StructType, Array[String], util.Iterator[Row], Array[Long])] =
+    CacheBuilder.newBuilder().expireAfterAccess(5 * 60, TimeUnit.SECONDS).build(new IteratorCacheLoader)
 
   class TableCacheLoader() extends CacheLoader[String, (StructType, Map[String, String])] {
     override def load(tableName: String): (StructType, Map[String, String]) = {
@@ -50,6 +54,16 @@ object SparkService extends Logging {
       val catalogTbl = tryGetMeta.get
       val storageProperties: Map[String, String] = catalogTbl.storage.properties
       (catalogTbl.schema, storageProperties)
+    }
+  }
+
+  class IteratorCacheLoader() extends CacheLoader[String, (StructType, Array[String], util.Iterator[Row], Array[Long])] {
+    override def load(idAndQuery: String): (StructType, Array[String], util.Iterator[Row], Array[Long]) = {
+      val query = idAndQuery.substring(idAndQuery.indexOf(",") + 1)
+      val dataset = sparkSession.sql(query)
+      val columnNames = dataset.columns
+      val structType: StructType = dataset.schema
+      (structType, columnNames, dataset.toLocalIterator(), Array[Long](0L))
     }
   }
 
@@ -97,6 +111,7 @@ object SparkService extends Logging {
         }
 
         sparkSession = create(master, configs)
+        R2UDFs.register()
         initialized = true
       } finally {
         lock.unlock()
@@ -169,12 +184,20 @@ object SparkService extends Logging {
     case _ => throw new RuntimeException("Unsupported type: " + dataType.typeName)
   }
 
-  def executeSql(query: String, column_format: Boolean, nonce: String, first_n: Int, at_most_n: Int): TQueryResult = {
+  def executeSql(sessionId: String, query: String, column_format: Boolean, limit: Option[Int]): TQueryResult = {
     val stopwatch = Stopwatch.createStarted()
-    val dataset: Dataset[Row] = sparkSession.sql(query)
-    val columnNames: Array[String] = dataset.columns
+    val (structType: StructType, columnNames: Array[String], iterator: util.Iterator[Row], nonce: Long) = if (limit.isEmpty) {
+      val dataset = sparkSession.sql(query)
+      val columnNames = dataset.columns
+      val structType: StructType = dataset.schema
+      (structType, columnNames, dataset.toLocalIterator(), 1L)
+    } else {
+      val cached = iteratorCache.get(sessionId + "," + query)
+      cached._4(0) = cached._4(0) + 1L
+      (cached._1, cached._2, cached._3, cached._4(0))
+    }
+
     val columnTypes: util.List[TColumnType] = Lists.newArrayListWithCapacity(columnNames.length)
-    val structType: StructType = dataset.schema
     val datumTypes: Array[TDatumType] = new Array[TDatumType](columnNames.length)
     val rows: util.List[TRow] = Lists.newArrayList()
     val columns: util.List[TColumn] = Lists.newArrayList()
@@ -220,49 +243,73 @@ object SparkService extends Logging {
     }
 
     if (!column_format) {
-      for (datasetRow <- dataset.collect) {
-        val datums: util.List[TDatum] = Lists.newArrayList()
-        for (i <- 0 until columnNames.length) {
-          val value: Any = datasetRow.get(i)
-          val datum = new TDatum()
-          datum.setIs_null(value == null)
-          if (value != null) {
-            structType.fields(i).dataType match {
-              case StringType => datum.setVal(new TDatumVal().setStr_val(String.valueOf(value)))
-              case ShortType | IntegerType | LongType => datum.setVal(new TDatumVal().setInt_val(value.asInstanceOf[Number].longValue))
-              case FloatType | DoubleType => datum.setVal(new TDatumVal().setReal_val(value.asInstanceOf[Number].doubleValue))
-              case BooleanType => datum.setVal(new TDatumVal().setInt_val(if (value.asInstanceOf[Boolean]) 1L else 0L))
-              case DateType | TimestampType => datum.setVal(new TDatumVal().setInt_val(value.asInstanceOf[Date].getTime))
-              case GeometryUDTPublic | PointUDT => datum.setVal(new TDatumVal().setStr_val(value.asInstanceOf[Geometry].toText))
-              case BinaryType => datum.setVal(new TDatumVal().setStr_val(BaseEncoding.base64().encode(value.asInstanceOf[Array[Byte]])))
-              case ArrayType(_, _) => datum.setVal(new TDatumVal().setStr_val(value.asInstanceOf[mutable.WrappedArray[_]].mkString(",")))
-              case _ => throw new RuntimeException("Unsupported type: " + structType.fields(i).dataType.typeName)
+      var count: Long = 0;
+      var done = false;
+      while (iterator.hasNext && !done) {
+        try {
+          val row = iterator.next()
+          val datums: util.List[TDatum] = Lists.newArrayList()
+          for (i <- 0 until columnNames.length) {
+            val value: Any = row.get(i)
+            val datum = new TDatum()
+            datum.setIs_null(value == null)
+            if (value != null) {
+              structType.fields(i).dataType match {
+                case StringType => datum.setVal(new TDatumVal().setStr_val(String.valueOf(value)))
+                case ShortType | IntegerType | LongType => datum.setVal(new TDatumVal().setInt_val(value.asInstanceOf[Number].longValue))
+                case FloatType | DoubleType => datum.setVal(new TDatumVal().setReal_val(value.asInstanceOf[Number].doubleValue))
+                case BooleanType => datum.setVal(new TDatumVal().setInt_val(if (value.asInstanceOf[Boolean]) 1L else 0L))
+                case DateType | TimestampType => datum.setVal(new TDatumVal().setInt_val(value.asInstanceOf[Date].getTime))
+                case GeometryUDTPublic | PointUDT => datum.setVal(new TDatumVal().setStr_val(value.asInstanceOf[Geometry].toText))
+                case BinaryType => datum.setVal(new TDatumVal().setStr_val(BaseEncoding.base64().encode(value.asInstanceOf[Array[Byte]])))
+                case ArrayType(_, _) => datum.setVal(new TDatumVal().setStr_val(value.asInstanceOf[mutable.WrappedArray[_]].mkString(",")))
+                case _ => throw new RuntimeException("Unsupported type: " + structType.fields(i).dataType.typeName)
+              }
             }
+            datums.add(datum)
           }
-          datums.add(datum)
+          rows.add(new TRow(datums))
+        } finally {
+          count += 1;
+          if (limit.nonEmpty && count >= limit.get) {
+            done = true
+          }
         }
-        rows.add(new TRow(datums))
       }
     } else {
-      for (datasetRow <- dataset.collect) {
-        for (i <- 0 until columnNames.length) {
-          val column: TColumn = columns.get(i)
-          val value: Any = datasetRow.get(i)
-          column.getNulls.add(value == null)
-          if (value != null)
-            structType.fields(i).dataType match {
-              case StringType => column.getData.getStr_col.add(String.valueOf(value))
-              case ShortType | IntegerType | LongType => column.getData.getInt_col.add(value.asInstanceOf[Number].longValue)
-              case FloatType | DoubleType => column.getData.getReal_col.add(value.asInstanceOf[Number].doubleValue)
-              case BooleanType => column.getData.getInt_col.add(if (value.asInstanceOf[Boolean]) 1L else 0L)
-              case DateType | TimestampType => column.getData.getInt_col.add(value.asInstanceOf[Date].getTime)
-              case GeometryUDTPublic | PointUDT => column.getData.getStr_col.add(value.asInstanceOf[Geometry].toText)
-              case BinaryType => column.getData.getStr_col.add(BaseEncoding.base64().encode(value.asInstanceOf[Array[Byte]]))
-              case ArrayType(_, _) => column.getData.getStr_col.add(value.asInstanceOf[mutable.WrappedArray[_]].mkString(","))
-              case _ => throw new RuntimeException("Unsupported type: " + structType.fields(i).dataType.typeName)
-            }
+      var count: Long = 0;
+      var done = false;
+      while (iterator.hasNext && !done) {
+        try {
+          val row = iterator.next()
+          for (i <- 0 until columnNames.length) {
+            val column: TColumn = columns.get(i)
+            val value: Any = row.get(i)
+            column.getNulls.add(value == null)
+            if (value != null)
+              structType.fields(i).dataType match {
+                case StringType => column.getData.getStr_col.add(String.valueOf(value))
+                case ShortType | IntegerType | LongType => column.getData.getInt_col.add(value.asInstanceOf[Number].longValue)
+                case FloatType | DoubleType => column.getData.getReal_col.add(value.asInstanceOf[Number].doubleValue)
+                case BooleanType => column.getData.getInt_col.add(if (value.asInstanceOf[Boolean]) 1L else 0L)
+                case DateType | TimestampType => column.getData.getInt_col.add(value.asInstanceOf[Date].getTime)
+                case GeometryUDTPublic | PointUDT => column.getData.getStr_col.add(value.asInstanceOf[Geometry].toText)
+                case BinaryType => column.getData.getStr_col.add(BaseEncoding.base64().encode(value.asInstanceOf[Array[Byte]]))
+                case ArrayType(_, _) => column.getData.getStr_col.add(value.asInstanceOf[mutable.WrappedArray[_]].mkString(","))
+                case _ => throw new RuntimeException("Unsupported type: " + structType.fields(i).dataType.typeName)
+              }
+          }
+        } finally {
+          count += 1;
+          if (limit.nonEmpty && count >= limit.get) {
+            done = true
+          }
         }
       }
+    }
+    val hasNext = iterator.hasNext
+    if (limit.nonEmpty && !hasNext) {
+      iteratorCache.invalidate(sessionId + "," + query)
     }
     val rowSet: TRowSet = new TRowSet(columnTypes, // row_desc
       rows, // rows,
@@ -273,33 +320,84 @@ object SparkService extends Logging {
     new TQueryResult(rowSet, // row_set
       time, // execution_time_ms
       time, // total_time_ms
-      nonce // nonce
+      nonce.toString + "," + hasNext.toString // nonce
     )
   }
 
-  def executeSql(query: String): util.Map[String, Any] = {
+  def executeSql(sessionId: String, query: String, limit: Option[Int]): util.Map[String, Any] = {
     val stopwatch = Stopwatch.createStarted()
-    val dataset: Dataset[Row] = sparkSession.sql(query)
-    val columnNames: Array[String] = dataset.columns
-    val structType: StructType = dataset.schema
-    val rowSet = dataset.collect().map(row => {
-      (0 until columnNames.length).map(index => {
-        val name = columnNames(index)
-        val value = structType.fields(index).dataType match {
-          case StringType => row.getAs[String](index)
-          case ShortType | IntegerType | LongType => row.getAs[Long](index)
-          case FloatType | DoubleType => row.getAs[Double](index)
-          case BooleanType => row.getAs[Boolean](index)
-          case DateType | TimestampType => row.getAs[Date](index)
-          case GeometryUDTPublic | PointUDT => row.getAs[Geometry](index).toText
-          case BinaryType => BaseEncoding.base64().encode(row.getAs[Array[Byte]](index))
-          case ArrayType(_, _) => row.getAs[mutable.WrappedArray[_]](index).toArray
-          case _ => throw new RuntimeException("Unsupported type: " + structType.fields(index).dataType.typeName)
+    val (structType: StructType, columnNames: Array[String], iterator: util.Iterator[Row], nonce: Long) = if (limit.isEmpty) {
+      val dataset = sparkSession.sql(query)
+      val columnNames = dataset.columns
+      val structType: StructType = dataset.schema
+      (structType, columnNames, dataset.toLocalIterator(), 1L)
+    } else {
+      val cached = iteratorCache.get(sessionId + "," + query)
+      cached._4(0) = cached._4(0) + 1L
+      (cached._1, cached._2, cached._3, cached._4(0))
+    }
+
+    var count: Long = 0;
+    var done = false;
+    val rowSet: util.List[util.Map[String, Any]] = Lists.newArrayList()
+    while (iterator.hasNext && !done) {
+      try {
+        val row = iterator.next()
+        val map = (0 until columnNames.length).map(index => {
+          val name = columnNames(index)
+          val value = if (row.get(index) != null) {
+            structType.fields(index).dataType match {
+              case StringType => row.getAs[String](index)
+              case ShortType | IntegerType | LongType => row.getAs[Long](index)
+              case FloatType | DoubleType => row.getAs[Double](index)
+              case BooleanType => row.getAs[Boolean](index)
+              case DateType | TimestampType => row.getAs[Date](index)
+              case GeometryUDTPublic | PointUDT => row.getAs[Geometry](index).toText
+              case BinaryType => BaseEncoding.base64().encode(row.getAs[Array[Byte]](index))
+              case ArrayType(_, _) => row.getAs[mutable.WrappedArray[_]](index).toArray
+              case _ => throw new RuntimeException("Unsupported type: " + structType.fields(index).dataType.typeName)
+            }
+          } else {
+            null
+          }
+          (name -> value)
+        }).toMap[String, Any].asJava
+        rowSet.add(map)
+      } finally {
+        count += 1;
+        if (limit.nonEmpty && count >= limit.get) {
+          done = true
         }
-        (name -> value)
-      }).toMap[String, Any].asJava
-    }).toList.asJava
-    Map("execution_time_ms" -> stopwatch.elapsed(TimeUnit.MILLISECONDS), "rowset" -> rowSet).asJava
+      }
+    }
+    val hasNext = iterator.hasNext
+    if (limit.nonEmpty && !hasNext) {
+      iteratorCache.invalidate(sessionId + "," + query)
+    }
+    Map("execution_time_ms" -> stopwatch.elapsed(TimeUnit.MILLISECONDS), "rowset" -> rowSet, "nonce" -> (nonce.toString + "," + hasNext.toString)).asJava
+  }
+
+  def renderSql(query: String, nonce: String, typeName: String, zoom: Int, tx: Int, ty: Int,
+                aggrType: com.stlogic.fbgis.vector_tile.VectorTileBuilder.AggregateType): TRenderResult = {
+    val stopwatch = Stopwatch.createStarted()
+    val dataset = sparkSession.sql(
+      if (query.toUpperCase.contains(" WHERE ")) {
+        query + s" AND ST_VectorTileAggr(geometry, '${zoom},${tx},${ty}', '${aggrType.name()}')"
+      } else {
+        query + s" WHERE ST_VectorTileAggr(geometry, '${zoom},${tx},${ty}', '${aggrType.name()}')"
+      })
+    val structType: StructType = dataset.schema
+
+    val bytes = VectorTileBuilder.build(structType, dataset.rdd, typeName, aggrType)
+    val time: Long = stopwatch.elapsed(TimeUnit.MILLISECONDS)
+    new TRenderResult(
+      ByteBuffer.wrap(bytes), // image
+      nonce, // nonce
+      time, // execution_time_ms
+      time, // render_time_ms
+      time, // total_time_ms
+      "" // vega_metadata
+    )
   }
 
   def executePca(query: String): String= {

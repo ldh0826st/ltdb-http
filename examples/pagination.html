@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pagination</title>
+
+    <script type="text/javascript" src="./js/browser-connector.js"></script>
+
+    <script type="text/javascript" src="./js/jquery-3.5.1.slim.min.js"></script>
+    <script type="text/javascript" src="./js/popper-1.16.1.min.js"></script>
+    <script type="text/javascript" src="./js/bootstrap-4.5.2.min.js"></script>
+
+    <link rel="stylesheet" href="./css/bootstrap-4.5.2.min.css">
+    <link rel="stylesheet" href="./fonts/fontawesome-5.14.0/css/all.css">
+    <style>
+        .h1 {
+            /*font-size: 200%;*/
+            font-weight: bold;
+            color: #555;
+            font-family: "Arial Black";
+        }
+
+
+        /*pre {*/
+        /*    display: block;*/
+        /*    font: 100% "Courier New", Courier, monospace;*/
+        /*    padding: 10px;*/
+        /*    border: 1px solid #bae2f0;*/
+        /*    background: #e3f4f9;*/
+        /*    margin: .5em 0;*/
+        /*    overflow: auto;*/
+        /*    font-size: 12px;*/
+        /*}*/
+
+        .container-child {
+            margin: .5em 0;
+            width: 80%;
+            padding: 10px;
+        }
+
+        td, th {
+            white-space: normal !important;
+            word-wrap: break-word;
+        }
+        table {
+            table-layout: fixed;
+        }
+    </style>
+</head>
+<body>
+<div id="title" align="center">
+    <br>
+    <p class="h1">Pagination</p>
+    <br>
+</div>
+<div id="container" align="center">
+    <div>
+        <div class="container-child form-group row">
+            <label for="url" class="ml-1 col-form-label">URL</label>
+            <div class="col-sm-10">
+                <input type="url" class="form-control" id="url" placeholder="http://fbg01:4762">
+            </div>
+            <label for="page_size" class="ml-1 col-form-label">Size</label>
+            <div class="col-sm-1">
+                <input type="text" class="form-control" id="page_size" placeholder="30">
+            </div>
+        </div>
+        <div class="container-child form-group row">
+            <label for="sql" class="ml-1 col-form-label">SQL</label>
+            <div class="col-sm-10">
+                <textarea class="form-control" id="sql" rows="3" placeholder="SELECT * FROM ltdb_instance2"></textarea>
+                <!--            <input type="text" class="form-control" id="sql" placeholder="SELECT * FROM ltdb_instance2">-->
+            </div>
+            <button class="ml-2 btn btn-primary btn-sm" id="sql_execute"><i class="fa fa-level-down-alt fa-rotate-90"
+                                                                            style="width: 15px"></i>
+            </button>
+            <button class="ml-2 btn btn-primary btn-sm" id="sql_execute_next"><i class="fa fa-arrow-right"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Table  -->
+    <table class="table table-bordered table-sm" id="table" style="width: 80%">
+        <!-- Table head -->
+        <thead>
+        <tr id="header">
+        </tr>
+        </thead>
+        <!-- Table head -->
+
+        <!-- Table body -->
+        <tbody>
+        </tbody>
+        <!-- Table body -->
+    </table>
+</div>
+
+<div class="modal fade" id="info-alert" role="dialog">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-body" style="padding: 0px !important">
+                <div class="alert alert-info alert-dismissible" style="margin: 0px !important">
+                    <h4 class="alert-heading" id="info-header"></h4>
+                    <hr>
+                    <p id="info-message"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="error-alert" role="dialog">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-body" style="padding: 0px !important">
+                <div class="alert alert-danger alert-dismissible" style="margin: 0px !important">
+                    <h4 class="alert-heading" id="error-header"></h4>
+                    <hr>
+                    <p id="error-message"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<script type="text/javascript">
+    const container = document.getElementById("container");
+    const url = document.getElementById("url");
+    const sql = document.getElementById("sql");
+    const pageSize = document.getElementById("page_size");
+    const sqlExecute = document.getElementById("sql_execute");
+    const sqlExecuteNext = document.getElementById("sql_execute_next");
+    const table = document.getElementById("table");
+    const header = document.getElementById("header");
+
+    const infoHeader = document.getElementById("info-header");
+    const infoMessage = document.getElementById("info-message");
+
+    const errorHeader = document.getElementById("error-header");
+    const errorMessage = document.getElementById("error-message");
+
+    const mapdCon = new MapdCon();
+    var client = null;
+    var count = 0;
+
+    sqlExecuteNext.disabled = true;
+
+    function getLocation(href) {
+        const l = document.createElement("a");
+        l.href = href;
+        return l;
+    }
+
+    function updateTable(rows) {
+        for (let i = 0; i < header.childNodes.length; i++) {
+            header.removeChild(header.childNodes.item(0));
+        }
+        let rowCount = table.rows.length;
+        for (let i = 1; i < rowCount; i++) {
+            table.deleteRow(1);
+        }
+
+        if (rows.length === 0) {
+            return;
+        }
+        const columns = [];
+        for (let key in rows[0]) {
+            columns.push(key);
+            const th = document.createElement("th");
+            th.textContent = key;
+            header.appendChild(th);
+        }
+
+        rows.forEach(function (row) {
+            const tr = document.createElement("tr");
+            for (let i = 0; i < columns.length; i++) {
+                const column = columns[i];
+                let td = document.createElement("td");
+                td.textContent = row[column];
+                tr.appendChild(td);
+            }
+            table.getElementsByTagName("tbody").item(0).appendChild(tr);
+        });
+    }
+
+    function executeSql(client, sql) {
+        return new Promise(function (resolve, reject) {
+            client.sql_execute(mapdCon._sessionId[0], sql, false, "", parseInt(pageSize.value), -1, (error, result) => {
+                if (error) {
+                    reject(error);
+                } else {
+                    const nonce = result.nonce.split(",");
+                    const sequence = parseInt(nonce[0]);
+                    const finished = nonce[1].trim().toLowerCase() === "false";
+                    const rtn = {
+                        sequence: sequence,
+                        finished: finished,
+                        rows: mapdCon.processResults({}, result, error)
+                    };
+                    console.log(rtn);
+                    resolve(rtn);
+                }
+            });
+        })
+    }
+
+    sqlExecute.addEventListener("click", function (e) {
+        try {
+            if (url.value === "") {
+                url.value = url.getAttribute("placeHolder");
+            }
+            if (pageSize.value === "") {
+                pageSize.value = pageSize.getAttribute("placeHolder");
+            }
+            if (sql.value === "") {
+                sql.value = sql.getAttribute("placeHolder");
+            }
+
+            let location = getLocation(url.value);
+            const host = location.hostname;
+            const port = location.port.length === 0 ? 80 : parseInt(location.port);
+            count = 0;
+
+            mapdCon
+                .host(host)
+                .port(port)
+                .dbName("default")
+                .user("ltdb")
+                .password("ltdb")
+                .connectAsync()
+                .then((connector) => {
+                    client = connector._client[0];
+                    executeSql(client, sql.value).then((result) => {
+                        sqlExecuteNext.disabled = result.finished;
+                        count += result.rows.length;
+                        updateTable(result.rows);
+
+                        if (result.finished) {
+                            infoHeader.innerHTML = '<i class="fa fa-exclamation-triangle"></i> Info';
+                            infoMessage.textContent = count + " rows fetch finished";
+                            $("#info-alert").modal();
+                        }
+                    }).catch((error) => {
+                        sqlExecuteNext.disabled = true;
+                        throw error;
+                    });
+                });
+        } catch (e) {
+            errorHeader.innerHTML = '<i class="fa fa-exclamation-triangle"></i> Error';
+            errorMessage.textContent = e.stack;
+            $("#error-alert").modal();
+        }
+    });
+
+    sqlExecuteNext.addEventListener("click", function (e) {
+        try {
+            executeSql(client, sql.value).then((result) => {
+                sqlExecuteNext.disabled = result.finished;
+                count += result.rows.length;
+                updateTable(result.rows);
+
+                if (result.finished) {
+                    infoHeader.innerHTML = '<i class="fa fa-exclamation-triangle"></i> Info';
+                    infoMessage.textContent = count + " rows fetch finished";
+                    $("#info-alert").modal();
+                }
+            }).catch((error) => {
+                sqlExecuteNext.disabled = true;
+                throw error;
+            });
+        } catch (e) {
+            errorHeader.innerHTML = '<i class="fa fa-exclamation-triangle"></i> Error';
+            errorMessage.textContent = e.stack;
+            $("#error-alert").modal();
+        }
+    });
+</script>
+</body>
+</html>
