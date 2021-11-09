@@ -1,0 +1,1 @@
+export HADOOP_CONF_DIR=/home/nvkvs/stlogic/hadoop-2.7.3/etc/hadoop

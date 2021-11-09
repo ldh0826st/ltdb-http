@@ -125,9 +125,16 @@ object IngestServlet {
   def getTableAsMap(name: String): util.Map[String, Any] = {
     val table = SparkService.getTable(name)
     val options = table._2.asJava
-    val schema = table._1.foldLeft(Map.empty[String, String]) {
+    val schema = table._1
+      .filter(f => !f.name.equalsIgnoreCase("geohash"))
+      .foldLeft(Map.empty[String, String]) {
       case (m, e) => {
-        m + (e.name -> e.dataType.typeName)
+        val typeName = if (e.name.equalsIgnoreCase("geometry")) {
+          "geometry"
+        } else {
+          e.dataType.typeName
+        }
+        m + (e.name -> typeName)
       }
     }.asJava
     Map[String, Any]("options" -> options, "schema" -> schema).asJava

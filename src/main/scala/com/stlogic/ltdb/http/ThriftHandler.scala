@@ -1,7 +1,10 @@
 package com.stlogic.ltdb.http
 
 import com.google.common.collect.Lists
+import com.google.gson.GsonBuilder
+import com.google.gson.reflect.TypeToken
 import com.skt.spark.r2.util.Logging
+import com.stlogic.fbgis.vector_tile.VectorTileBuilder
 import com.stlogic.omnisci.thrift.calciteserver.TCompletionHint
 import com.stlogic.omnisci.thrift.server._
 
@@ -74,7 +77,6 @@ class ThriftHandler(ltdbServerConf: LTDBServerConf) extends Logging with MapD.If
     SparkService.getTableDetail(table_name)
   }
 
-
   override def get_internal_table_details(session: String, table_name: String): TTableDetails = {
     logError(s"get_internal_table_details: $session, $table_name")
     null
@@ -146,7 +148,7 @@ class ThriftHandler(ltdbServerConf: LTDBServerConf) extends Logging with MapD.If
 
   override def sql_execute(session: String, query: String, column_format: Boolean, nonce: String, first_n: Int, at_most_n: Int): TQueryResult = {
     logInfo(s"sql_execute: $session, $query, $column_format, $nonce, $first_n, $at_most_n")
-    SparkService.executeSql(query, column_format, nonce, first_n, at_most_n)
+    SparkService.executeSql(session, query, column_format, if (first_n <= 0) None else Option(first_n))
   }
 
   override def sql_execute_df(session: String, query: String, device_type: TDeviceType, device_id: Int, first_n: Int): TDataFrame = {
@@ -182,8 +184,16 @@ class ThriftHandler(ltdbServerConf: LTDBServerConf) extends Logging with MapD.If
   }
 
   override def render_vega(session: String, widget_id: Long, vega_json: String, compression_level: Int, nonce: String): TRenderResult = {
-    logError(s"render_vega: $session, $widget_id, $vega_json, $compression_level, $nonce")
-    null
+    logInfo(s"render_vega: $session, $widget_id, $vega_json, $compression_level, $nonce")
+    val json: util.Map[String, String] = GSON.fromJson(vega_json, MAP_STRING_STRING_TYPE)
+    val sql = json.get("sql")
+    val typeName = json.get("typeName")
+    val zoom = json.get("zoom").toInt
+    val tx = json.get("tx").toInt
+    val ty = json.get("ty").toInt
+    val aggrType = if (json.containsKey("aggrType"))
+      VectorTileBuilder.AggregateType.valueOf(json.get("aggrType").toUpperCase()) else VectorTileBuilder.AggregateType.SUM
+    SparkService.renderSql(sql, nonce, typeName, zoom, tx, ty, aggrType)
   }
 
   override def get_result_row_for_pixel(session: String, widget_id: Long, pixel: TPixel, table_col_names: util.Map[String, util.List[String]], column_format: Boolean, pixelRadius: Int, nonce: String): TPixelTableRowResult = {
@@ -402,4 +412,7 @@ class ThriftHandler(ltdbServerConf: LTDBServerConf) extends Logging with MapD.If
 
 object ThriftHandler extends Logging {
   private val HOST_NAME: String = Try(InetAddress.getLocalHost.getHostName).getOrElse(null)
+  val GSON = new GsonBuilder().serializeNulls().serializeSpecialFloatingPointValues().create()
+  val MAP_STRING_STRING_TYPE = new TypeToken[java.util.Map[String, String]]() {
+  }.getType();
 }

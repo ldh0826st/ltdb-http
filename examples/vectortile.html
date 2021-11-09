@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>VectorTile</title>
+    <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no'/>
+    <link href='./css/mapbox-gl.css' rel='stylesheet'/>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+
+        #tooltip:empty {
+            display: none;
+        }
+
+        #tooltip {
+            font-family: Helvetica, Arial, sans-serif;
+            position: absolute;
+            padding: 4px;
+            margin: 8px;
+            background: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            max-width: 300px;
+            font-size: 10px;
+            z-index: 9;
+            pointer-events: none;
+        }
+    </style>
+
+    <script type="text/javascript" src="./js/mapbox-gl.js"></script>
+    <!--    <script type="text/javascript" src="./js/browser-connector.js"></script>-->
+</head>
+<body>
+<div id='map'></div>
+<div id="tooltip"></div>
+
+<script>
+    // const host = "127.0.0.1"
+    // const port = 8080;
+    const host = "fbg01";
+    const port = 4762;
+
+    const map = new mapboxgl.Map({
+        container: 'map', // container id
+        hash: true,
+        style: {
+            'version': 8,
+            'sources': {
+                'raster-tiles': {
+                    'type': 'raster',
+                    'tiles': [
+                        'http://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+                    ],
+                    'tileSize': 256
+                }
+            },
+            'layers': [{
+                'id': 'base-map',
+                'type': 'raster',
+                'source': 'raster-tiles',
+                'minzoom': 0,
+                'maxzoom': 22
+            }]
+        },
+        center: [126.96099658228684, 37.54371621174512], // starting position
+        zoom: 15 // starting zoom
+    });
+
+    map.on('load', function () {
+        map.style.dispatcher.broadcast('loadWorkerSource', {
+            name: "browser-connector",
+            url: "http://localhost:63342/ltdb-http/examples/js/browser-connector.js"
+        }, function (e) {
+            if (e) {
+                console.log(e);
+            }
+        });
+        // 14 13968 6345
+        // new MapdCon()
+        //     .host(host)
+        //     .port(port)
+        //     .dbName("default")
+        //     .user("ltdb")
+        //     .password("ltdb")
+        //     .connectAsync().then(function (connector) {
+        //     return connector.renderVegaAsync("1", JSON.stringify({
+        //         "sql": "SELECT * FROM ltdb_fp",
+        //         "zoom": 14,
+        //         "tx": 13968,
+        //         "ty": 6345,
+        //         "typeName": "ltdb_fp",
+        //         "aggrType": "sum"
+        //     }), {}).then(function (response) {
+        //         console.log(response);
+        //         return response.arrayBuffer();
+        //     });
+        // });
+        map.addSource('vector-tile', {
+            type: 'vector',
+            tilesFunction: `function (tile) {
+                    function _base64ToArrayBuffer(base64) {
+                        var binary_string = atob(base64);
+                        var len = binary_string.length;
+                        var bytes = new Uint8Array(len);
+                        for (var i = 0; i < len; i++) {
+                            bytes[i] = binary_string.charCodeAt(i);
+                        }
+                        return bytes.buffer;
+                    }
+                    var mapdCon = new MapdCon();
+                    mapdCon._protocol = ['http'];
+                    return mapdCon
+                        .host("${host}")
+                        .port(${port})
+                        .dbName("default")
+                        .user("ltdb")
+                        .password("ltdb")
+                        .connectAsync().then(function (connector) {
+                        return connector.renderVegaAsync("1", JSON.stringify({
+                            "sql": "SELECT * FROM ltdb_fp WHERE event_time >= '202103151055' AND event_time <= '202103171055'",
+                            "zoom": tile.tileID.canonical.z,
+                            "tx": tile.tileID.canonical.x,
+                            "ty": tile.tileID.canonical.y,
+                            "typeName": "ltdb_fp",
+                            "aggrType": "sum"
+                        }), {});
+                    }).then(function (response) {
+                        // console.log(response);
+                        return _base64ToArrayBuffer(response.image);
+                    });
+                }`,
+            minzoom: 0,
+            maxzoom: 22
+        });
+        map.addLayer(
+            {
+                id: 'vector-tile',
+                type: 'circle',
+                source: 'vector-tile',
+                'source-layer': 'ltdb_fp',
+                paint: {
+                    'circle-radius': 2,
+                    'circle-color': 'White'
+                }
+            }
+        );
+    });
+</script>
+</body>
+</html>

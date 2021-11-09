@@ -5,7 +5,6 @@ import com.skt.spark.r2.util.Logging
 import com.stlogic.ltdb.http.QueryServlet.GSON
 import org.scalatra._
 
-import scala.collection.JavaConverters.mapAsJavaMapConverter
 import scala.concurrent.ExecutionContext
 
 class QueryServlet(ltdbServerConf: LTDBServerConf)
@@ -24,9 +23,20 @@ class QueryServlet(ltdbServerConf: LTDBServerConf)
     }
   }
 
+  case class Query(sessionId: String, query: String, limit: Int = -1)
+
   post("/") {
-    val query = request.body
-    Ok(GSON.toJson(SparkService.executeSql(query)))
+    if (request.body.startsWith("{")) {
+      val query = GSON.fromJson(request.body, classOf[Query])
+      val limit = if (query.limit <= 0) {
+        None
+      } else {
+        Option(query.limit)
+      }
+      Ok(GSON.toJson(SparkService.executeSql(query.sessionId, query.query, limit)))
+    } else {
+      Ok(GSON.toJson(SparkService.executeSql("0", request.body, None)))
+    }
   }
 }
 
