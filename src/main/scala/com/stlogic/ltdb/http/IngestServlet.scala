@@ -31,8 +31,6 @@ class IngestServlet(ltdbServerConf: LTDBServerConf)
   extends ScalatraServlet with ApiFormats with FutureSupport with Logging {
   override protected implicit def executor: ExecutionContext = ExecutionContext.global
 
-  SparkService.init(ltdbServerConf)
-
   import IngestModule._
 
   override def shutdown(): Unit = {

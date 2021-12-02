@@ -4,14 +4,18 @@ import com.skt.spark.r2.util.Logging
 import com.stlogic.omnisci.thrift.server.MapD
 import org.apache.thrift.protocol.TJSONProtocol
 import org.apache.thrift.server.TServlet
-import org.eclipse.jetty.servlet.FilterHolder
+import org.eclipse.jetty.server.ResourceService
+import org.eclipse.jetty.server.handler.ResourceHandler
+import org.eclipse.jetty.servlet.{DefaultServlet, FilterHolder, ServletHolder}
+import org.eclipse.jetty.servlets.CrossOriginFilter
+import org.eclipse.jetty.util.resource.Resource
 import org.scalatra.metrics.MetricsBootstrap
 import org.scalatra.servlet.ServletApiImplicits
-import org.spark_project.jetty.servlets.CrossOriginFilter
 
 import java.io.File
 import java.util.EnumSet
 import javax.servlet._
+import scala.util.Try
 
 class LTDBServer extends Logging {
 
@@ -31,9 +35,9 @@ class LTDBServer extends Logging {
   def start(): Unit = {
     ltdbServerConf = new LTDBServerConf().loadFromFile("ltdb-server.conf")
     val host = ltdbServerConf.get(SERVER_HOST)
-    val port = ltdbServerConf.getInt(SERVER_PORT)
+    val ports = ltdbServerConf.get(SERVER_PORTS)
 
-    server = new WebServer(ltdbServerConf, host, port)
+    server = new WebServer(ltdbServerConf, host, ports.split(",").map(port => port.toInt))
 
     server.context.addEventListener(
       new ServletContextListener() with MetricsBootstrap with ServletApiImplicits {
@@ -62,6 +66,19 @@ class LTDBServer extends Logging {
 
           val occludedServlet = new OccludedServlet(ltdbServerConf)
           mount(context, occludedServlet, "/occluded/*")
+
+          ltdbServerConf.get(LTDBServerConf.RESOURCE_DIRS).split(",").map(resourceName => {
+            val resourceDir = Try(sys.env.getOrElse("LTDB_HTTP_HOME", ".")).getOrElse(".") + s"/${resourceName}"
+            (resourceName, new File(resourceDir))
+          }).foreach(resource => {
+            if (resource._2.exists()) {
+              val registration = context.addServlet(resource._1, classOf[DefaultServlet])
+              registration.setInitParameter("resourceBase", Resource.newResource(resource._2).toString)
+              registration.setInitParameter("dirAllowed", "true")
+              registration.setInitParameter("pathInfoOnly", "true")
+              registration.addMapping(s"/${resource._1}/*")
+            }
+          })
         }
       }
     )
@@ -70,9 +87,8 @@ class LTDBServer extends Logging {
     holder.setInitParameter(CrossOriginFilter.ALLOWED_ORIGINS_PARAM, "*")
     holder.setInitParameter(CrossOriginFilter.ALLOWED_METHODS_PARAM, "POST,GET,OPTIONS,PUT,DELETE,HEAD")
     holder.setInitParameter(CrossOriginFilter.ALLOWED_HEADERS_PARAM, "X-PINGOTHER, Origin, X-Requested-With, Content-Type, Accept")
-    holder.setInitParameter(CrossOriginFilter.PREFLIGHT_MAX_AGE_PARAM, "728000")
+    holder.setInitParameter(CrossOriginFilter.PREFLIGHT_MAX_AGE_PARAM, "1728000")
     holder.setInitParameter(CrossOriginFilter.ALLOW_CREDENTIALS_PARAM, "true")
-    holder.setInitParameter(CrossOriginFilter.ACCESS_CONTROL_REQUEST_METHOD_HEADER, "POST,GET,OPTIONS,PUT,DELETE,HEAD")
     holder.setInitParameter(CrossOriginFilter.CHAIN_PREFLIGHT_PARAM, "false")
     val corsFilter = new CrossOriginFilter
     holder.setFilter(corsFilter)
@@ -86,6 +102,8 @@ class LTDBServer extends Logging {
     })
 
     server.start()
+
+    SparkService.init(ltdbServerConf)
   }
 
   def join(): Unit = server.join()

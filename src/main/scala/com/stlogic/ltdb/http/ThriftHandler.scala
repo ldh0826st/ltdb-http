@@ -18,8 +18,6 @@ class ThriftHandler(ltdbServerConf: LTDBServerConf) extends Logging with MapD.If
   import SparkService._
   import ThriftHandler._
 
-  SparkService.init(ltdbServerConf)
-
   override def connect(user: String, passwd: String, dbname: String): String = {
     lock.lock()
     try {
@@ -186,14 +184,21 @@ class ThriftHandler(ltdbServerConf: LTDBServerConf) extends Logging with MapD.If
   override def render_vega(session: String, widget_id: Long, vega_json: String, compression_level: Int, nonce: String): TRenderResult = {
     logInfo(s"render_vega: $session, $widget_id, $vega_json, $compression_level, $nonce")
     val json: util.Map[String, String] = GSON.fromJson(vega_json, MAP_STRING_STRING_TYPE)
-    val sql = json.get("sql")
+    val sql = if (json.containsKey("sql")) {
+      Array[String](json.get("sql"))
+    } else {
+      Array[String](json.get("sql1"), json.get("sql2"))
+    }
     val typeName = json.get("typeName")
+    val geomName = if (json.containsKey("geomName")) json.get("geomName") else "geometry"
     val zoom = json.get("zoom").toInt
     val tx = json.get("tx").toInt
     val ty = json.get("ty").toInt
     val aggrType = if (json.containsKey("aggrType"))
       VectorTileBuilder.AggregateType.valueOf(json.get("aggrType").toUpperCase()) else VectorTileBuilder.AggregateType.SUM
-    SparkService.renderSql(sql, nonce, typeName, zoom, tx, ty, aggrType)
+    val multiple = if (json.containsKey("multiple")) "true".equals(json.get("multiple").toLowerCase) else false
+    val valueFilter = if (json.containsKey("valueFilter") && json.get("valueFilter") != null) Option[Double](json.get("valueFilter").toDouble) else None
+    SparkService.renderSql(sql, nonce, typeName, geomName, zoom, tx, ty, aggrType, multiple, valueFilter)
   }
 
   override def get_result_row_for_pixel(session: String, widget_id: Long, pixel: TPixel, table_col_names: util.Map[String, util.List[String]], column_format: Boolean, pixelRadius: Int, nonce: String): TPixelTableRowResult = {

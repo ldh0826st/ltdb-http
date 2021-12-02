@@ -41,7 +41,7 @@ case "$1" in
         fi
         echo "Starting LTDB HTTP"
         classpath
-        (${JAVA_HOME}/bin/java -Xmx4096m -cp ${CLASSPATH} -Droot.path=${LTDB_HTTP_HOME} com.stlogic.ltdb.http.LTDBServer) &
+        (${JAVA_HOME}/bin/java -server -Xmx4096m -cp ${CLASSPATH} -Droot.path=${LTDB_HTTP_HOME} com.stlogic.ltdb.http.LTDBServer) &
         PID=`ps -eaf|grep ltdb-http|grep java|grep -v grep|awk '{print $2}'`
         RETVAL=$?
         [ $RETVAL = 0 ] && touch ${lockfile}
