@@ -402,7 +402,7 @@ object SparkService extends Logging {
       val dataset = sparkSession.sql(query)
       val columnNames = dataset.columns
       val structType: StructType = dataset.schema
-      (structType, columnNames, dataset.collect().iterator, 1L)
+      (structType, columnNames, dataset.collect().iterator.asJava, 1L)
     } else {
       val cached = iteratorCache.get(sessionId + "," + query)
       cached._4(0) = cached._4(0) + 1L
@@ -542,7 +542,7 @@ object SparkService extends Logging {
       val dataset = sparkSession.sql(query)
       val columnNames = dataset.columns
       val structType: StructType = dataset.schema
-      (structType, columnNames, dataset.collect().iterator, 1L)
+      (structType, columnNames, dataset.collect().iterator.asJava, 1L)
     } else {
       val cached = iteratorCache.get(sessionId + "," + query)
       cached._4(0) = cached._4(0) + 1L
