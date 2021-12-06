@@ -226,7 +226,7 @@
             .password("ltdb")
             .connectAsync()
             .then(function (connector) {
-                return connector.queryAsync("SELECT sum(exist_m_00), sum(exist_m_10), sum(exist_m_20), sum(exist_m_30), sum(exist_m_40), sum(exist_m_50), sum(exist_m_60), sum(exist_m_70), sum(exist_m_80), sum(exist_m_90), sum(exist_f_00), sum(exist_f_10), sum(exist_f_20), sum(exist_f_30), sum(exist_f_40), sum(exist_f_50), sum(exist_f_60), sum(exist_f_70), sum(exist_f_80), sum(exist_f_90) FROM ltdb_fp WHERE event_time = '202103151000' limit 1", {columnarResults: false});
+                return connector.queryAsync("SELECT sum(exist_m_00) + sum(exist_m_10) + sum(exist_m_20) + sum(exist_m_30) + sum(exist_m_40) + sum(exist_m_50) + sum(exist_m_60) + sum(exist_m_70) + sum(exist_m_80) + sum(exist_m_90) + sum(exist_f_00) + sum(exist_f_10) + sum(exist_f_20) + sum(exist_f_30) + sum(exist_f_40) + sum(exist_f_50) + sum(exist_f_60) + sum(exist_f_70) + sum(exist_f_80) + sum(exist_f_90) as a_a FROM ltdb_fp WHERE event_time = '202103151000' limit 1", {columnarResults: false});
             })
     ]).then(function (result) {
         eventTime = (function () {
@@ -240,6 +240,7 @@
             }
             return total;
         })();
+        console.log(result[2]);
         console.log(total);
         map.style.dispatcher.broadcast('loadWorkerSource', {
             name: "pako",
@@ -301,13 +302,13 @@
                     var eventTime1 = tile.tilesFunctionParams.eventTime1;
                     var eventTime2 = tile.tilesFunctionParams.eventTime2;
 
-                    var sql = "SELECT exist_m_00, exist_m_10, exist_m_20, exist_m_30, exist_m_40, exist_m_50, exist_m_60, exist_m_70, exist_m_80, exist_m_90, exist_f_00, exist_f_10, exist_f_20, exist_f_30, exist_f_40, exist_f_50, exist_f_60, exist_f_70, exist_f_80, exist_f_90, geometry FROM ltdb_fp WHERE event_time = '" + eventTime1 + "'";
+                    var sql = "SELECT exist_m_00 + exist_m_10 + exist_m_20 + exist_m_30 + exist_m_40 + exist_m_50 + exist_m_60 + exist_m_70 + exist_m_80 + exist_m_90 + exist_f_00 + exist_f_10 + exist_f_20 + exist_f_30 + exist_f_40 + exist_f_50 + exist_f_60 + exist_f_70 + exist_f_80 + exist_f_90 as a_a, geometry FROM ltdb_fp WHERE event_time = '" + eventTime1 + "'";
                     var typeName = "ltdb_fp";
                     var aggrType = "sum";
                     var multiple = false;
                     // var bbox = ${JSON.stringify(bbox)};
                     var bbox = null;
-                    return renderSqlPost(host, port, tile, sql, typeName, aggrType, multiple, bbox);
+                    return renderSqlPost(host, port, tile, sql, typeName, aggrType, multiple, bbox, 1.0);
                 }`,
             minzoom: 0,
             maxzoom: 22,
@@ -315,28 +316,7 @@
         const weight = [
             'interpolate',
             ['linear'],
-            ["+",
-                ['get', 'exist_m_00'],
-                ['get', 'exist_m_10'],
-                ['get', 'exist_m_20'],
-                ['get', 'exist_m_30'],
-                ['get', 'exist_m_40'],
-                ['get', 'exist_m_50'],
-                ['get', 'exist_m_60'],
-                ['get', 'exist_m_70'],
-                ['get', 'exist_m_80'],
-                ['get', 'exist_m_90'],
-                ['get', 'exist_f_00'],
-                ['get', 'exist_f_10'],
-                ['get', 'exist_f_20'],
-                ['get', 'exist_f_30'],
-                ['get', 'exist_f_40'],
-                ['get', 'exist_f_50'],
-                ['get', 'exist_f_60'],
-                ['get', 'exist_f_70'],
-                ['get', 'exist_f_80'],
-                ['get', 'exist_f_90']
-            ],
+            ['get', 'a_a'],
             0, 0,
             total / 4, 0.5,
             total, 1
@@ -344,51 +324,11 @@
 
         const max = [
             'max',
-            ["+",
-                ['get', 'exist_m_00'],
-                ['get', 'exist_m_10'],
-                ['get', 'exist_m_20'],
-                ['get', 'exist_m_30'],
-                ['get', 'exist_m_40'],
-                ['get', 'exist_m_50'],
-                ['get', 'exist_m_60'],
-                ['get', 'exist_m_70'],
-                ['get', 'exist_m_80'],
-                ['get', 'exist_m_90'],
-                ['get', 'exist_f_00'],
-                ['get', 'exist_f_10'],
-                ['get', 'exist_f_20'],
-                ['get', 'exist_f_30'],
-                ['get', 'exist_f_40'],
-                ['get', 'exist_f_50'],
-                ['get', 'exist_f_60'],
-                ['get', 'exist_f_70'],
-                ['get', 'exist_f_80'],
-                ['get', 'exist_f_90']
-            ]
+            ['get', 'a_a']
         ];
 
         const sum = ["+",
-            ['get', 'exist_m_00'],
-            ['get', 'exist_m_10'],
-            ['get', 'exist_m_20'],
-            ['get', 'exist_m_30'],
-            ['get', 'exist_m_40'],
-            ['get', 'exist_m_50'],
-            ['get', 'exist_m_60'],
-            ['get', 'exist_m_70'],
-            ['get', 'exist_m_80'],
-            ['get', 'exist_m_90'],
-            ['get', 'exist_f_00'],
-            ['get', 'exist_f_10'],
-            ['get', 'exist_f_20'],
-            ['get', 'exist_f_30'],
-            ['get', 'exist_f_40'],
-            ['get', 'exist_f_50'],
-            ['get', 'exist_f_60'],
-            ['get', 'exist_f_70'],
-            ['get', 'exist_f_80'],
-            ['get', 'exist_f_90']
+            ['get', 'a_a']
         ]
 
         map.addLayer(

@@ -13,14 +13,14 @@ import com.vividsolutions.jts.geom.Geometry
 import org.apache.hadoop.util.Shell
 import org.apache.spark.ml.feature.{PCA, StandardScaler}
 import org.apache.spark.ml.linalg.Vectors
-import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.functions.udf
 import org.apache.spark.sql.r2.UDF.R2UDFs
 import org.apache.spark.sql.r2.UDT.{GeometryUDTPublic, PointUDT}
 import org.apache.spark.sql.types._
+import org.apache.spark.sql.{Row, SparkSession}
 
-import java.io.File
+import java.io.{ByteArrayOutputStream, File}
 import java.nio.ByteBuffer
 import java.util
 import java.util.Date
@@ -38,6 +38,10 @@ object SparkService extends Logging {
     CacheBuilder.newBuilder().maximumSize(10000).expireAfterAccess(5 * 60, TimeUnit.SECONDS).build(new TableCacheLoader)
   private val iteratorCache: LoadingCache[String, (StructType, Array[String], util.Iterator[Row], Array[Long])] =
     CacheBuilder.newBuilder().expireAfterAccess(5 * 60, TimeUnit.SECONDS).build(new IteratorCacheLoader)
+  private val renderCache: LoadingCache[RenderCacheKey, (StructType, Map[GeometryKey, Row], Array[Byte])] =
+    CacheBuilder.newBuilder().maximumSize(10000).expireAfterAccess(5 * 60 * 12 * 3, TimeUnit.SECONDS).build(new RenderCacheLoader)
+  private val renderDiffCache: LoadingCache[RenderCacheKey, Array[Byte]] =
+    CacheBuilder.newBuilder().maximumSize(10000).expireAfterAccess(5 * 60 * 12 * 3, TimeUnit.SECONDS).build(new RenderDiffCacheLoader)
 
   class TableCacheLoader() extends CacheLoader[String, (StructType, Map[String, String])] {
     override def load(tableName: String): (StructType, Map[String, String]) = {
@@ -67,13 +71,221 @@ object SparkService extends Logging {
     }
   }
 
+  class RenderCacheKey(val queries: Array[String], val typeName: String, val geomName: String, val zoom: Int, val tx: Int, val ty: Int,
+                       val aggrType: com.stlogic.fbgis.vector_tile.VectorTileBuilder.AggregateType, val multiple: Boolean,
+                       val valueFilter: Option[Double]) {
+    lazy val hash: Int = {
+      val state = queries ++ Seq(typeName, geomName, zoom, tx, ty, aggrType, multiple)
+      state.map(a => a.hashCode()).foldLeft(0)((a, b) => 31 * a + b)
+    }
+
+    override def hashCode(): Int = hash
+
+    def canEqual(other: Any): Boolean = other.isInstanceOf[RenderCacheKey]
+
+    override def equals(other: Any): Boolean = other match {
+      case that: RenderCacheKey =>
+        (that canEqual this) &&
+          queries.mkString(",").equals(that.queries.mkString(",")) &&
+          typeName.equals(that.typeName) &&
+          geomName.equals(that.geomName) &&
+          zoom == that.zoom &&
+          tx == that.tx &&
+          ty == that.ty &&
+          aggrType == that.aggrType &&
+          multiple == that.multiple &&
+          valueFilter.equals(that.valueFilter)
+      case _ => false
+    }
+
+    def get(): (Array[String], String, String, Int, Int, Int,
+      com.stlogic.fbgis.vector_tile.VectorTileBuilder.AggregateType, Boolean,
+      Option[Double]) = {
+      (queries, typeName, geomName, zoom, tx, ty,
+        aggrType: com.stlogic.fbgis.vector_tile.VectorTileBuilder.AggregateType, multiple,
+        valueFilter)
+    }
+  }
+
+  class GeometryKey(val geometry: Geometry) extends Serializable {
+    lazy val hash: Int = {
+      val state = Seq(geometry)
+      state.map(_.hashCode()).foldLeft(0)((a, b) => 31 * a + b)
+    }
+
+    override def hashCode(): Int = hash
+
+    def canEqual(other: Any): Boolean = other.isInstanceOf[GeometryKey]
+
+    override def equals(other: Any): Boolean = other match {
+      case that: GeometryKey =>
+        (that canEqual this) &&
+          geometry.equals(that.geometry)
+      case _ => false
+    }
+  }
+
+  class RenderCacheLoader() extends CacheLoader[RenderCacheKey, (StructType, Map[GeometryKey, Row], Array[Byte])] {
+    override def load(key: RenderCacheKey): (StructType, Map[GeometryKey, Row], Array[Byte]) = {
+      val (queries: Array[String], typeName: String, geomName: String, zoom: Int, tx: Int, ty: Int,
+      aggrType: com.stlogic.fbgis.vector_tile.VectorTileBuilder.AggregateType, multiple: Boolean,
+      valueFilter: Option[Double]) = key.get()
+
+      val dataset = sparkSession.sql(if (queries(0).toUpperCase.contains(" WHERE ")) {
+        queries(0) + s" AND ST_VectorTileAggr(${geomName}, '${zoom},${tx},${ty}', '${aggrType.name()}')"
+      } else {
+        queries(0) + s" WHERE ST_VectorTileAggr(${geomName}, '${zoom},${tx},${ty}', '${aggrType.name()}')"
+      })
+      val structType: StructType = dataset.schema
+      val columnNames = dataset.columns
+      val rdd = if (valueFilter.isEmpty) {
+        dataset.rdd
+      } else {
+        dataset.rdd.filter(row => {
+          var filtered = false
+          (0 until columnNames.length).foreach(index => {
+            structType.fields(index).dataType match {
+              case ShortType => filtered = filtered || (Math.abs(row.getAs[Short](index)) >= valueFilter.get)
+              case IntegerType => filtered = filtered || (Math.abs(row.getAs[Int](index)) >= valueFilter.get)
+              case LongType => filtered = filtered || (Math.abs(row.getAs[Long](index)) >= valueFilter.get)
+              case FloatType => filtered = filtered || (Math.abs(row.getAs[Float](index)) >= valueFilter.get)
+              case DoubleType => filtered = filtered || (Math.abs(row.getAs[Double](index)) >= valueFilter.get)
+              case _ => None
+            }
+          })
+          filtered
+        })
+      }
+      val geometryIndex = structType.fieldIndex(geomName)
+      val collected = rdd.map(row => {
+        (new GeometryKey(row.getAs[Geometry](geometryIndex)) -> row)
+      }).collect()
+      val bytes = if (!multiple) {
+        VectorTileBuilder.compress(VectorTileBuilder.build(structType, new util.Iterator[Row]() {
+          val iterator: Iterator[(GeometryKey, Row)] = collected.toIterator
+
+          override def hasNext: Boolean = {
+            iterator.hasNext
+          }
+
+          override def next(): Row = {
+            iterator.next()._2
+          }
+        }, typeName, aggrType, zoom, tx, ty))
+      } else {
+        val outputStream = new ByteArrayOutputStream(1024 * 1024)
+        rdd.mapPartitions(rows => Iterator(VectorTileBuilder.build(structType, rows.asJava, typeName, aggrType, zoom, tx, ty)))
+          .collect().foreach(bytes => {
+          outputStream.write(ByteBuffer.allocate(4).putInt(bytes.length).array())
+          outputStream.write(bytes)
+        })
+        outputStream.close()
+        VectorTileBuilder.compress(outputStream.toByteArray)
+      }
+      (structType, collected.toMap[GeometryKey, Row], bytes)
+    }
+  }
+
+  class RenderDiffCacheLoader() extends CacheLoader[RenderCacheKey, Array[Byte]] {
+    override def load(key: RenderCacheKey): Array[Byte] = {
+      val (queries: Array[String], typeName: String, geomName: String, zoom: Int, tx: Int, ty: Int,
+      aggrType: com.stlogic.fbgis.vector_tile.VectorTileBuilder.AggregateType, multiple: Boolean,
+      valueFilter: Option[Double]) = key.get()
+
+      val (structType: StructType, rowsMap1: Map[GeometryKey, Row], _) =
+        renderCache.get(new RenderCacheKey(Array(queries(0)), typeName, geomName, zoom, tx, ty, aggrType, multiple, valueFilter))
+      val (_, rowsMap2: Map[GeometryKey, Row], _) =
+        renderCache.get(new RenderCacheKey(Array(queries(1)), typeName, geomName, zoom, tx, ty, aggrType, multiple, valueFilter))
+
+      val columnNames = structType.fields.map(field => {
+        field.name
+      })
+
+      val keys = rowsMap1.keySet ++ rowsMap2.keySet
+      val diffSchema = StructType(structType.fields.map(field => {
+        if (field.name.equals(geomName)) {
+          field
+        } else {
+          StructField(s"sum(${field.name})", field.dataType, field.nullable)
+        }
+      }))
+
+      val bytes = VectorTileBuilder.compress(VectorTileBuilder.build(diffSchema, new util.Iterator[Row] {
+        val iterator: Iterator[GeometryKey] = keys.toIterator
+        override def hasNext: Boolean = {
+          iterator.hasNext
+        }
+
+        override def next(): Row = {
+          val key = iterator.next()
+          val row1 = if (rowsMap1.contains(key)) rowsMap1(key) else null
+          val row2 = if (rowsMap2.contains(key)) rowsMap2(key) else null
+          var filtered = false
+          val values = (0 until columnNames.length).map(index => {
+            structType.fields(index).dataType match {
+              case ShortType => {
+                val value = (if (row1 != null) row1.getAs[Short](index) else 0.toShort) - (if (row2 != null) row2.getAs[Short](index) else 0.toShort)
+                if (valueFilter.nonEmpty) {
+                  filtered = filtered || (Math.abs(value) >= valueFilter.get)
+                }
+                value
+              }
+              case IntegerType => {
+                val value = (if (row1 != null) row1.getAs[Int](index) else 0) - (if (row2 != null) row2.getAs[Int](index) else 0)
+                if (valueFilter.nonEmpty) {
+                  filtered = filtered || (Math.abs(value) >= valueFilter.get)
+                }
+                value
+              }
+              case LongType => {
+                val value = (if (row1 != null) row1.getAs[Long](index) else 0L) - (if (row2 != null) row2.getAs[Long](index) else 0L)
+                if (valueFilter.nonEmpty) {
+                  filtered = filtered || (Math.abs(value) >= valueFilter.get)
+                }
+                value
+              }
+              case FloatType => {
+                val value = (if (row1 != null) row1.getAs[Float](index) else 0.0f) - (if (row2 != null) row2.getAs[Float](index) else 0.0f)
+                if (valueFilter.nonEmpty) {
+                  filtered = filtered || (Math.abs(value) >= valueFilter.get)
+                }
+                value
+              }
+              case DoubleType => {
+                val value = (if (row1 != null) row1.getAs[Double](index) else 0.0d) - (if (row2 != null) row2.getAs[Double](index) else 0.0d)
+                if (valueFilter.nonEmpty) {
+                  filtered = filtered || (Math.abs(value) >= valueFilter.get)
+                }
+                value
+              }
+              case _ => if (row1 != null) row1.get(index) else row2.get(index)
+            }
+          })
+          if (valueFilter.isEmpty || filtered) {
+            Row.fromSeq(values)
+          } else {
+            null
+          }
+        }
+      }, typeName, aggrType, zoom, tx, ty))
+      if (!multiple) {
+        bytes
+      } else {
+        val outputStream = new ByteArrayOutputStream(1024 * 1024)
+        outputStream.write(ByteBuffer.allocate(4).putInt(bytes.length).array())
+        outputStream.close()
+        VectorTileBuilder.compress(outputStream.toByteArray)
+      }
+    }
+  }
+
   def init(ltdbServerConf: LTDBServerConf): Unit = {
     if (!initialized) {
       lock.lock()
       try {
         val master = ltdbServerConf.get("ltdb.spark.master")
         val configs = ltdbServerConf.iterator().asScala.filter(e => {
-          !e.getKey.equals("ltdb.spark.master") && e.getKey.startsWith("ltdb.spark.")
+          !e.getKey.equals("ltdb.spark.master") && (e.getKey.startsWith("ltdb.spark.") || e.getKey.startsWith("ltdb.sql."))
         }).foldLeft(Map.empty[String, String]) {
           case (m, e) => {
             m + (e.getKey.substring("ltdb.".length) -> e.getValue)
@@ -190,7 +402,7 @@ object SparkService extends Logging {
       val dataset = sparkSession.sql(query)
       val columnNames = dataset.columns
       val structType: StructType = dataset.schema
-      (structType, columnNames, dataset.toLocalIterator(), 1L)
+      (structType, columnNames, dataset.collect().iterator, 1L)
     } else {
       val cached = iteratorCache.get(sessionId + "," + query)
       cached._4(0) = cached._4(0) + 1L
@@ -330,7 +542,7 @@ object SparkService extends Logging {
       val dataset = sparkSession.sql(query)
       val columnNames = dataset.columns
       val structType: StructType = dataset.schema
-      (structType, columnNames, dataset.toLocalIterator(), 1L)
+      (structType, columnNames, dataset.collect().iterator, 1L)
     } else {
       val cached = iteratorCache.get(sessionId + "," + query)
       cached._4(0) = cached._4(0) + 1L
@@ -377,19 +589,19 @@ object SparkService extends Logging {
     Map("execution_time_ms" -> stopwatch.elapsed(TimeUnit.MILLISECONDS), "rowset" -> rowSet, "nonce" -> (nonce.toString + "," + hasNext.toString)).asJava
   }
 
-  def renderSql(query: String, nonce: String, typeName: String, zoom: Int, tx: Int, ty: Int,
-                aggrType: com.stlogic.fbgis.vector_tile.VectorTileBuilder.AggregateType): TRenderResult = {
+  def renderSql(queries: Array[String], nonce: String, typeName: String, geomName: String, zoom: Int, tx: Int, ty: Int,
+                aggrType: com.stlogic.fbgis.vector_tile.VectorTileBuilder.AggregateType, multiple: Boolean,
+                valueFilter: Option[Double]): TRenderResult = {
+    logDebug("renderSql: start")
     val stopwatch = Stopwatch.createStarted()
-    val dataset = sparkSession.sql(
-      if (query.toUpperCase.contains(" WHERE ")) {
-        query + s" AND ST_VectorTileAggr(geometry, '${zoom},${tx},${ty}', '${aggrType.name()}')"
-      } else {
-        query + s" WHERE ST_VectorTileAggr(geometry, '${zoom},${tx},${ty}', '${aggrType.name()}')"
-      })
-    val structType: StructType = dataset.schema
-
-    val bytes = VectorTileBuilder.build(structType, dataset.rdd, typeName, aggrType)
+    val bytes = if (queries.length == 1) {
+      val (_, _, bytes) = renderCache.get(new RenderCacheKey(Array(queries(0)), typeName, geomName, zoom, tx, ty, aggrType, multiple, valueFilter))
+      bytes
+    } else {
+      renderDiffCache.get(new RenderCacheKey(queries, typeName, geomName, zoom, tx, ty, aggrType, multiple, valueFilter))
+    }
     val time: Long = stopwatch.elapsed(TimeUnit.MILLISECONDS)
+    logDebug(s"renderSql: end - ${time}")
     new TRenderResult(
       ByteBuffer.wrap(bytes), // image
       nonce, // nonce
@@ -400,14 +612,20 @@ object SparkService extends Logging {
     )
   }
 
-  def executePca(query: String): String= {
+  def clearRenderCache(): Boolean = {
+    renderCache.invalidateAll()
+    renderDiffCache.invalidateAll()
+    true
+  }
+
+  def executePca(query: String): String = {
     val GSON = new GsonBuilder().serializeNulls().serializeSpecialFloatingPointValues().create()
     val stopwatch = Stopwatch.createStarted()
-    val spark:SparkSession = sparkSession
+    val spark: SparkSession = sparkSession
     import spark.implicits._
 
     // process query
-    var query_result= spark.sql(query)
+    var query_result = spark.sql(query)
 
     // convert float array to Vectors
     val convertToVector = udf((array: Seq[Float]) => {
@@ -444,20 +662,20 @@ object SparkService extends Logging {
     }
   }
 
-  def executeOccluded(query: String): String= {
+  def executeOccluded(query: String): String = {
     val GSON = new GsonBuilder().serializeNulls().serializeSpecialFloatingPointValues().create()
     val stopwatch = Stopwatch.createStarted()
-    val spark:SparkSession = sparkSession
+    val spark: SparkSession = sparkSession
     import spark.implicits._
 
     // process query
     val df = spark.sql(query)
-    var resultDf = Seq.empty[(Long,Boolean)].toDF("file_id", "Occluded")
+    var resultDf = Seq.empty[(Long, Boolean)].toDF("file_id", "Occluded")
     var tmpDf = spark.emptyDataFrame
     var df2 = spark.emptyDataFrame
     var dfResult = spark.emptyDataFrame
 
-    val fileArray = df.select(df("file_id")).distinct.rdd.map(x=>x.mkString).collect
+    val fileArray = df.select(df("file_id")).distinct.rdd.map(x => x.mkString).collect
 
     if (fileArray.length > 0) {
       df.createOrReplaceTempView("occluded")
@@ -467,13 +685,13 @@ object SparkService extends Logging {
         val fileDf = df.filter(df("file_id") === fileArray(it_file))
         fileDf.createOrReplaceTempView("occluded")
 
-        val idArray = fileDf.selectExpr("instance_id").rdd.map(x=>x.mkString).collect
-        val regionArray = fileDf.selectExpr("region").rdd.map(x=>x.mkString).collect
+        val idArray = fileDf.selectExpr("instance_id").rdd.map(x => x.mkString).collect
+        val regionArray = fileDf.selectExpr("region").rdd.map(x => x.mkString).collect
 
         var iterator = 0
         occluded = false
-        while (occluded == false &&  iterator < idArray.length) {
-          df2 = spark.sql("select instance_id from occluded  where file_id = " + fileArray(it_file) + " and instance_id > " + idArray(iterator)  + " and " + "ST_Overlaps(st_geomFromWKT(region ),st_geomFromWKT('" + regionArray(iterator) + "')) = true")
+        while (occluded == false && iterator < idArray.length) {
+          df2 = spark.sql("select instance_id from occluded  where file_id = " + fileArray(it_file) + " and instance_id > " + idArray(iterator) + " and " + "ST_Overlaps(st_geomFromWKT(region ),st_geomFromWKT('" + regionArray(iterator) + "')) = true")
 
           if (df2.count() > 0) occluded = true
           iterator = iterator + 1

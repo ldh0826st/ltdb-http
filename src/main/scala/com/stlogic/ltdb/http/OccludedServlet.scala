@@ -9,8 +9,6 @@ class OccludedServlet(ltdbServerConf: LTDBServerConf)
   extends ScalatraServlet with ApiFormats with FutureSupport with Logging {
   override protected implicit def executor: ExecutionContext = ExecutionContext.global
 
-  SparkService.init(ltdbServerConf)
-
   override def shutdown(): Unit = {
   }
 

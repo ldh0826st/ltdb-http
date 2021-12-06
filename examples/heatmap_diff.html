@@ -39,27 +39,7 @@
     <script type="text/javascript" src="./js/global-mercator.js"></script>
     <script type="text/javascript" src="./js/mapbox-gl.js"></script>
     <script type="text/javascript" src="./js/browser-connector.js"></script>
-    <script type="text/javascript" src="./js/pako.js"></script>
-    <script type="text/javascript" src="./js/vectortile-utils.js"></script>
     <script type="text/javascript" src="./js/moment.js"></script>
-
-    <script type="text/javascript" src="./js/turf.min.js"></script>
-    <script type="text/javascript" src="./js/wellknown.js"></script>
-    <script type="text/javascript" src="./js/mapbox-gl-draw.js"></script>
-    <link href='./css/mapbox-gl-draw.css' rel='stylesheet'/>
-
-<!--    <link rel="preconnect" href="http://fbg01:4762">-->
-<!--    <link rel="preconnect" href="http://fbg01:4763">-->
-<!--    <link rel="preconnect" href="http://fbg01:4764">-->
-<!--    <link rel="preconnect" href="http://fbg01:4765">-->
-<!--    <link rel="preconnect" href="http://fbg01:4766">-->
-<!--    <link rel="preconnect" href="http://fbg01:4767">-->
-<!--    <link rel="preconnect" href="http://fbg01:4768">-->
-<!--    <link rel="preconnect" href="http://fbg01:4769">-->
-<!--    <link rel="preconnect" href="http://fbg01:4770">-->
-<!--    <link rel="preconnect" href="http://fbg01:4771">-->
-<!--    <link rel="preconnect" href="http://fbg01:4772">-->
-<!--    <link rel="preconnect" href="http://fbg01:4773">-->
 </head>
 <body>
 <div id='map'></div>
@@ -69,7 +49,7 @@
     mapboxgl.workerCount = 32;
     mapboxgl.maxParallelImageRequests = 32;
 
-    const bbox = [126.76487604016523, 37.42806780710028, 127.18416090045505, 37.70130441174812]; // seoul
+    const bbox = [126.76487604016523,37.42806780710028,127.18416090045505,37.70130441174812]; // seoul
 
     const radius = (function () {
         const mercator = new GlobalMercator();
@@ -91,7 +71,6 @@
                 return mercator.PixelsToMeters(pixels[0], pixels[1], zoom);
             })();
             const calc = Math.max(1, Math.round(BIN_SIZE / Math.abs(meters1[0] - meters2[0])));
-            // const calc = Math.round(BIN_SIZE / Math.abs(meters1[0] - meters2[0]));
             radius.push(zoom);
             radius.push(calc);
             // console.log(zoom, Math.abs(meters1[0] - meters2[0]), calc);
@@ -113,14 +92,14 @@
             9, 10,
             10, 10,
             11, 10,
-            12, 20,
-            13, 20,
-            14, 40,
-            15, 80,
-            16, 90,
-            17, 40,
-            18, 50,
-            19, 60,
+            12, 15,
+            13, 15,
+            14, 30,
+            15, 45,
+            16, 55,
+            17, 60,
+            18, 60,
+            19, 70,
             20, 70,
             21, 80,
             22, 100
@@ -130,7 +109,7 @@
     // const host = "127.0.0.1";
     // const ports = [8080];
     const host = "fbg01";
-    const ports = [4762, 4763, 4764, 4765, 4766, 4767, 4768, 4769, 4770, 4771, 4772, 4773];
+    const ports = [4762,4763,4764,4765,4766,4767,4768,4769,4770,4771,4772,4773];
     const eventTimeFormat = "YYYYMMDDhhmm";
     let eventTime = null;
 
@@ -168,15 +147,6 @@
             const time = moment.duration("00:03:00");
             const eventTime2 = maxEventTime.subtract(time).format(eventTimeFormat);
 
-            console.log(eventTime1, eventTime2);
-
-            // var sql = "SELECT exist_m_00, exist_m_10, exist_m_20, exist_m_30, exist_m_40, exist_m_50, exist_m_60, exist_m_70, exist_m_80, exist_m_90, exist_f_00, exist_f_10, exist_f_20, exist_f_30, exist_f_40, exist_f_50, exist_f_60, exist_f_70, exist_f_80, exist_f_90, geometry FROM ltdb_fp WHERE event_time = '202103151000'";
-            // var typeName = "ltdb_fp";
-            // var aggrType = "sum";
-            // var multiple = false;
-            //
-            // renderSqlRest(host, port, {tileID: {canonical: {z: tile.zoom, x: tile.tx, y: tile.ty}}}, sql, typeName, aggrType, multiple, bbox);
-
             return {
                 host: host,
                 port: port,
@@ -185,22 +155,6 @@
             }
         }
     });
-
-    const draw = new MapboxDraw({
-        displayControlsDefault: false,
-// Select which mapbox-gl-draw control buttons to add to the map.
-        controls: {
-            circle: true,
-            polygon: true,
-            trash: true
-        }
-    });
-
-    // Map#addControl takes an optional second argument to set the position of the control.
-    // If no position is specified the control defaults to `top-right`. See the docs
-    // for more details: https://docs.mapbox.com/mapbox-gl-js/api/#map#addcontrol
-
-    map.addControl(draw, 'top-left');
 
     Promise.all([
         new Promise(function (resolve, reject) {
@@ -230,7 +184,7 @@
             })
     ]).then(function (result) {
         eventTime = (function () {
-            return {min: result[1][0]["min(event_time)"], max: result[1][0]["max(event_time)"]};
+            return { min: result[1][0]["min(event_time)"], max: result[1][0]["max(event_time)"]};
         })();
         console.log(eventTime);
         const total = (function () {
@@ -301,41 +255,42 @@
                     var eventTime1 = tile.tilesFunctionParams.eventTime1;
                     var eventTime2 = tile.tilesFunctionParams.eventTime2;
 
-                    var sql = "SELECT exist_m_00, exist_m_10, exist_m_20, exist_m_30, exist_m_40, exist_m_50, exist_m_60, exist_m_70, exist_m_80, exist_m_90, exist_f_00, exist_f_10, exist_f_20, exist_f_30, exist_f_40, exist_f_50, exist_f_60, exist_f_70, exist_f_80, exist_f_90, geometry FROM ltdb_fp WHERE event_time = '" + eventTime1 + "'";
+                    var sql1 = "SELECT exist_m_00, exist_m_10, exist_m_20, exist_m_30, exist_m_40, exist_m_50, exist_m_60, exist_m_70, exist_m_80, exist_m_90, exist_f_00, exist_f_10, exist_f_20, exist_f_30, exist_f_40, exist_f_50, exist_f_60, exist_f_70, exist_f_80, exist_f_90, geometry FROM ltdb_fp WHERE event_time = '" + eventTime1 + "'";;
+                    var sql2 = "SELECT exist_m_00, exist_m_10, exist_m_20, exist_m_30, exist_m_40, exist_m_50, exist_m_60, exist_m_70, exist_m_80, exist_m_90, exist_f_00, exist_f_10, exist_f_20, exist_f_30, exist_f_40, exist_f_50, exist_f_60, exist_f_70, exist_f_80, exist_f_90, geometry FROM ltdb_fp WHERE event_time = '" + eventTime2 + "'";;
                     var typeName = "ltdb_fp";
                     var aggrType = "sum";
                     var multiple = false;
                     // var bbox = ${JSON.stringify(bbox)};
                     var bbox = null;
-                    return renderSqlPost(host, port, tile, sql, typeName, aggrType, multiple, bbox);
+                    return renderSqlDiffPost(host, port, tile, sql1, sql2, typeName, aggrType, multiple, bbox);
                 }`,
             minzoom: 0,
-            maxzoom: 22,
+            maxzoom: 22
         });
         const weight = [
             'interpolate',
             ['linear'],
             ["+",
-                ['get', 'exist_m_00'],
-                ['get', 'exist_m_10'],
-                ['get', 'exist_m_20'],
-                ['get', 'exist_m_30'],
-                ['get', 'exist_m_40'],
-                ['get', 'exist_m_50'],
-                ['get', 'exist_m_60'],
-                ['get', 'exist_m_70'],
-                ['get', 'exist_m_80'],
-                ['get', 'exist_m_90'],
-                ['get', 'exist_f_00'],
-                ['get', 'exist_f_10'],
-                ['get', 'exist_f_20'],
-                ['get', 'exist_f_30'],
-                ['get', 'exist_f_40'],
-                ['get', 'exist_f_50'],
-                ['get', 'exist_f_60'],
-                ['get', 'exist_f_70'],
-                ['get', 'exist_f_80'],
-                ['get', 'exist_f_90']
+                ['get', 'sum(exist_m_00)'],
+                ['get', 'sum(exist_m_10)'],
+                ['get', 'sum(exist_m_20)'],
+                ['get', 'sum(exist_m_30)'],
+                ['get', 'sum(exist_m_40)'],
+                ['get', 'sum(exist_m_50)'],
+                ['get', 'sum(exist_m_60)'],
+                ['get', 'sum(exist_m_70)'],
+                ['get', 'sum(exist_m_80)'],
+                ['get', 'sum(exist_m_90)'],
+                ['get', 'sum(exist_f_00)'],
+                ['get', 'sum(exist_f_10)'],
+                ['get', 'sum(exist_f_20)'],
+                ['get', 'sum(exist_f_30)'],
+                ['get', 'sum(exist_f_40)'],
+                ['get', 'sum(exist_f_50)'],
+                ['get', 'sum(exist_f_60)'],
+                ['get', 'sum(exist_f_70)'],
+                ['get', 'sum(exist_f_80)'],
+                ['get', 'sum(exist_f_90)']
             ],
             0, 0,
             total / 4, 0.5,
@@ -345,50 +300,50 @@
         const max = [
             'max',
             ["+",
-                ['get', 'exist_m_00'],
-                ['get', 'exist_m_10'],
-                ['get', 'exist_m_20'],
-                ['get', 'exist_m_30'],
-                ['get', 'exist_m_40'],
-                ['get', 'exist_m_50'],
-                ['get', 'exist_m_60'],
-                ['get', 'exist_m_70'],
-                ['get', 'exist_m_80'],
-                ['get', 'exist_m_90'],
-                ['get', 'exist_f_00'],
-                ['get', 'exist_f_10'],
-                ['get', 'exist_f_20'],
-                ['get', 'exist_f_30'],
-                ['get', 'exist_f_40'],
-                ['get', 'exist_f_50'],
-                ['get', 'exist_f_60'],
-                ['get', 'exist_f_70'],
-                ['get', 'exist_f_80'],
-                ['get', 'exist_f_90']
+                ['get', 'sum(exist_m_00)'],
+                ['get', 'sum(exist_m_10)'],
+                ['get', 'sum(exist_m_20)'],
+                ['get', 'sum(exist_m_30)'],
+                ['get', 'sum(exist_m_40)'],
+                ['get', 'sum(exist_m_50)'],
+                ['get', 'sum(exist_m_60)'],
+                ['get', 'sum(exist_m_70)'],
+                ['get', 'sum(exist_m_80)'],
+                ['get', 'sum(exist_m_90)'],
+                ['get', 'sum(exist_f_00)'],
+                ['get', 'sum(exist_f_10)'],
+                ['get', 'sum(exist_f_20)'],
+                ['get', 'sum(exist_f_30)'],
+                ['get', 'sum(exist_f_40)'],
+                ['get', 'sum(exist_f_50)'],
+                ['get', 'sum(exist_f_60)'],
+                ['get', 'sum(exist_f_70)'],
+                ['get', 'sum(exist_f_80)'],
+                ['get', 'sum(exist_f_90)']
             ]
         ];
 
         const sum = ["+",
-            ['get', 'exist_m_00'],
-            ['get', 'exist_m_10'],
-            ['get', 'exist_m_20'],
-            ['get', 'exist_m_30'],
-            ['get', 'exist_m_40'],
-            ['get', 'exist_m_50'],
-            ['get', 'exist_m_60'],
-            ['get', 'exist_m_70'],
-            ['get', 'exist_m_80'],
-            ['get', 'exist_m_90'],
-            ['get', 'exist_f_00'],
-            ['get', 'exist_f_10'],
-            ['get', 'exist_f_20'],
-            ['get', 'exist_f_30'],
-            ['get', 'exist_f_40'],
-            ['get', 'exist_f_50'],
-            ['get', 'exist_f_60'],
-            ['get', 'exist_f_70'],
-            ['get', 'exist_f_80'],
-            ['get', 'exist_f_90']
+            ['get', 'sum(exist_m_00)'],
+            ['get', 'sum(exist_m_10)'],
+            ['get', 'sum(exist_m_20)'],
+            ['get', 'sum(exist_m_30)'],
+            ['get', 'sum(exist_m_40)'],
+            ['get', 'sum(exist_m_50)'],
+            ['get', 'sum(exist_m_60)'],
+            ['get', 'sum(exist_m_70)'],
+            ['get', 'sum(exist_m_80)'],
+            ['get', 'sum(exist_m_90)'],
+            ['get', 'sum(exist_f_00)'],
+            ['get', 'sum(exist_f_10)'],
+            ['get', 'sum(exist_f_20)'],
+            ['get', 'sum(exist_f_30)'],
+            ['get', 'sum(exist_f_40)'],
+            ['get', 'sum(exist_f_50)'],
+            ['get', 'sum(exist_f_60)'],
+            ['get', 'sum(exist_f_70)'],
+            ['get', 'sum(exist_f_80)'],
+            ['get', 'sum(exist_f_90)']
         ]
 
         map.addLayer(
@@ -438,17 +393,17 @@
 //                         1, 'rgb(178,24,43)'
 //                     ],
                     "heatmap-color": [
-                        'step', ['heatmap-density'], 'rgba(255, 255, 254, 0)',
-                        0.05, 'rgb(255, 255, 204)',
-                        0.2, 'rgb(255, 240, 168)',
-                        0.3, 'rgb(254, 225, 134)',
-                        0.4, 'rgb(254, 201, 101)',
-                        0.5, 'rgb(253, 170, 72)',
-                        0.6, 'rgb(253, 141, 60)',
-                        0.7, 'rgb(252, 90, 45)',
-                        0.8, 'rgb(237, 46, 33)',
-                        0.9, 'rgb(211, 15, 32)',
-                        1, 'rgb(176, 0, 38)'
+                        'step', ['heatmap-density'], 'rgba(255, 255, 255, 0)',
+                        0.05, 'rgb(255, 255, 229)',
+                        0.2, 'rgb(248, 252, 193)',
+                        0.3, 'rgb(229, 244, 171)',
+                        0.4, 'rgb(199, 232, 154)',
+                        0.5, 'rgb(162, 216, 137)',
+                        0.6, 'rgb(120, 198, 121)',
+                        0.7, 'rgb(75, 176, 98)',
+                        0.8, 'rgb(47, 147, 77)',
+                        0.9, 'rgb(20, 120, 62)',
+                        1, 'rgb(0, 96, 52)'
                     ],
 // Adjust the heatmap radius by zoom level
                     'heatmap-radius': radius,
@@ -473,19 +428,6 @@
                 // ]
             }
         );
-
-        // map.addLayer(
-        //     {
-        //         id: 'vector-tile2',
-        //         type: 'circle',
-        //         source: 'vector-tile',
-        //         'source-layer': 'ltdb_fp',
-        //         paint: {
-        //             'circle-radius': 2,
-        //             'circle-color': 'White'
-        //         }
-        //     }
-        // );
 
         let dirty = true;
         map.on("moveend", (e) => {
@@ -552,59 +494,6 @@
         }
         console.log(min, max, sum);
     }
-
-    function updateStatisticsOnDraw() {
-        const data = draw.getAll();
-        if (data.features.length > 0) {
-            console.log(data.features);
-            const wkt = wellknown.stringify(data.features[0].geometry);
-            const maxEventTime = moment(eventTime.max, eventTimeFormat);
-            const eventTime1 = maxEventTime.format(eventTimeFormat);
-
-            const time = moment.duration("72:00:00");
-            // const time = moment.duration("24:00:00");
-            const eventTime2 = maxEventTime.subtract(time).format(eventTimeFormat);
-
-            console.log(eventTime1, eventTime2);
-
-            const subQuery = `
-SELECT
-    sum(exist_m_00) as exist_m_00, sum(exist_m_10) as exist_m_10, sum(exist_m_20) as exist_m_20, sum(exist_m_30) as exist_m_30,
-    sum(exist_m_40) as exist_m_40, sum(exist_m_50) as exist_m_50, sum(exist_m_60) as exist_m_60, sum(exist_m_70) as exist_m_70,
-    sum(exist_m_80) as exist_m_80, sum(exist_m_90) as exist_m_90,
-    sum(exist_f_00) as exist_f_00, sum(exist_f_10) as exist_f_10, sum(exist_f_20) as exist_f_20, sum(exist_f_30) as exist_f_30,
-    sum(exist_f_40) as exist_f_40, sum(exist_f_50) as exist_f_50, sum(exist_f_60) as exist_f_60, sum(exist_f_70) as exist_f_70,
-    sum(exist_f_80) as exist_f_80, sum(exist_f_90) as exist_f_90,
-    substring(event_time, 0, ${eventTimeFormat.length - 2}) as event_time
-FROM ltdb_fp
-WHERE ST_CONTAINS(ST_GEOMFROMTEXT('${wkt}'), geometry) AND event_time >= '${eventTime2}' AND event_time <= '${eventTime1}' GROUP BY event_time`;
-//             const query = `
-// SELECT sum(exist_m_00), sum(exist_m_10), sum(exist_m_20), sum(exist_m_30), sum(exist_m_40), sum(exist_m_50), sum(exist_m_60), sum(exist_m_70), sum(exist_m_80), sum(exist_m_90), sum(exist_f_00), sum(exist_f_10), sum(exist_f_20), sum(exist_f_30), sum(exist_f_40), sum(exist_f_50), sum(exist_f_60), sum(exist_f_70), sum(exist_f_80), sum(exist_f_90), event_time
-// FROM (${subQuery}) GROUP BY event_time ORDER BY event_time`;
-            const query = `
-WITH statistics AS (${subQuery}) SELECT sum(exist_m_00), sum(exist_m_10), sum(exist_m_20), sum(exist_m_30), sum(exist_m_40), sum(exist_m_50), sum(exist_m_60), sum(exist_m_70), sum(exist_m_80), sum(exist_m_90), sum(exist_f_00), sum(exist_f_10), sum(exist_f_20), sum(exist_f_30), sum(exist_f_40), sum(exist_f_50), sum(exist_f_60), sum(exist_f_70), sum(exist_f_80), sum(exist_f_90), event_time
-FROM statistics GROUP BY event_time ORDER BY event_time`;
-            console.log(query);
-            new MapdCon()
-                .host(host)
-                .port(ports[0])
-                .dbName("default")
-                .user("ltdb")
-                .password("ltdb")
-                .connectAsync()
-                .then(function (connector) {
-                    connector.queryAsync(query).then(function (statistics) {
-                       console.log(statistics);
-                       console.log(statistics.map(function (s) {
-                           return s.event_time;
-                       }));
-                    });
-                })
-        }
-    }
-    map.on('draw.create', updateStatisticsOnDraw);
-    map.on('draw.delete', updateStatisticsOnDraw);
-    map.on('draw.update', updateStatisticsOnDraw);
 </script>
 </body>
 </html>

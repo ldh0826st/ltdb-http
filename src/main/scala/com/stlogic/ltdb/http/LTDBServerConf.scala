@@ -23,13 +23,17 @@ object LTDBServerConf {
   }
 
   val SERVER_HOST = Entry("ltdb.http.host", "0.0.0.0")
-  val SERVER_PORT = Entry("ltdb.http.port", 8080)
+  val SERVER_PORTS = Entry("ltdb.http.ports", "8080")
 
   val REQUEST_LOG_RETAIN_DAYS = Entry("ltdb.http.request-log-retain.days", 5)
 
   val SSL_KEYSTORE = Entry("ltdb.http.keystore", null)
   val SSL_KEYSTORE_PASSWORD = Entry("ltdb.http.keystore.password", null)
   val SSL_KEY_PASSWORD = Entry("ltdb.http.key-password", null)
+
+  val OUTPUT_BUFFER_SIZE = Entry("ltdb.output.buffer.size", 10 * 1024 * 1024)
+
+  val RESOURCE_DIRS = Entry("ltdb.http.resource.dirs", "")
 }
 
 class LTDBServerConf(loadDefaults: Boolean) extends Conf[LTDBServerConf](null) {
