@@ -67,18 +67,20 @@ class LTDBServer extends Logging {
           val occludedServlet = new OccludedServlet(ltdbServerConf)
           mount(context, occludedServlet, "/occluded/*")
 
-          ltdbServerConf.get(LTDBServerConf.RESOURCE_DIRS).split(",").map(resourceName => {
-            val resourceDir = Try(sys.env.getOrElse("LTDB_HTTP_HOME", ".")).getOrElse(".") + s"/${resourceName}"
-            (resourceName, new File(resourceDir))
-          }).foreach(resource => {
-            if (resource._2.exists()) {
-              val registration = context.addServlet(resource._1, classOf[DefaultServlet])
-              registration.setInitParameter("resourceBase", Resource.newResource(resource._2).toString)
-              registration.setInitParameter("dirAllowed", "true")
-              registration.setInitParameter("pathInfoOnly", "true")
-              registration.addMapping(s"/${resource._1}/*")
-            }
-          })
+          if (ltdbServerConf.get(LTDBServerConf.RESOURCE_DIRS).trim.nonEmpty) {
+            ltdbServerConf.get(LTDBServerConf.RESOURCE_DIRS).split(",").map(resourceName => {
+              val resourceDir = Try(sys.env.getOrElse("LTDB_HTTP_HOME", ".")).getOrElse(".") + s"/${resourceName}"
+              (resourceName, new File(resourceDir))
+            }).foreach(resource => {
+              if (resource._2.exists()) {
+                val registration = context.addServlet(resource._1, classOf[DefaultServlet])
+                registration.setInitParameter("resourceBase", Resource.newResource(resource._2).toString)
+                registration.setInitParameter("dirAllowed", "true")
+                registration.setInitParameter("pathInfoOnly", "true")
+                registration.addMapping(s"/${resource._1}/*")
+              }
+            })
+          }
         }
       }
     )
