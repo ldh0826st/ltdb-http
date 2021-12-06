@@ -13,7 +13,7 @@ mvn clean package -DskipTests -P release,dist,tgz -Dsite-spec=``사이트명``
 * 사이트명은 사이트별 설정을 가르키는 것으로 서비스 포트, Spark 설정, Hadoop 관련 설정 등이 포함
 * conf/site-specs 폴더 참조
 ```bash
-예) mvn clean package -DskipTests -P release,dist,tgz -Dsite-spec=fbg01
+예) mvn clean package -DskipTests -P release-yarn,dist-yarn,tgz -Dsite-spec=fbg01
 ```
 
 ## Installation
