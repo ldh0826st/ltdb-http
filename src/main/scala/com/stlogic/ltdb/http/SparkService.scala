@@ -34,14 +34,24 @@ object SparkService extends Logging {
   val lock: Lock = new ReentrantLock()
   private var sparkSession: SparkSession = _
   private var initialized: Boolean = _
-  private val tableCache: LoadingCache[String, (StructType, Map[String, String])] =
-    CacheBuilder.newBuilder().maximumSize(10000).expireAfterAccess(5 * 60, TimeUnit.SECONDS).build(new TableCacheLoader)
+  private var tableCacheSize: Long = 10000L
+  private var renderCacheSize: Long = 10000L
+  private var renderDiffCacheSize: Long = 10000L
+
+  private lazy val tableCache: LoadingCache[String, (StructType, Map[String, String])] = {
+    logInfo(s"tableCacheSize: ${tableCacheSize}")
+    CacheBuilder.newBuilder().maximumSize(tableCacheSize).expireAfterAccess(5 * 60, TimeUnit.SECONDS).build(new TableCacheLoader)
+  }
   private val iteratorCache: LoadingCache[String, (StructType, Array[String], util.Iterator[Row], Array[Long])] =
     CacheBuilder.newBuilder().expireAfterAccess(5 * 60, TimeUnit.SECONDS).build(new IteratorCacheLoader)
-  private val renderCache: LoadingCache[RenderCacheKey, (StructType, Map[GeometryKey, Row], Array[Byte])] =
-    CacheBuilder.newBuilder().maximumSize(10000).expireAfterAccess(5 * 60 * 12 * 3, TimeUnit.SECONDS).build(new RenderCacheLoader)
-  private val renderDiffCache: LoadingCache[RenderCacheKey, Array[Byte]] =
-    CacheBuilder.newBuilder().maximumSize(10000).expireAfterAccess(5 * 60 * 12 * 3, TimeUnit.SECONDS).build(new RenderDiffCacheLoader)
+  private lazy val renderCache: LoadingCache[RenderCacheKey, (StructType, Map[GeometryKey, Row], Array[Byte])] = {
+    logInfo(s"renderCacheSize: ${renderCacheSize}")
+    CacheBuilder.newBuilder().maximumSize(renderCacheSize).expireAfterAccess(5 * 60 * 12 * 3, TimeUnit.SECONDS).build(new RenderCacheLoader)
+  }
+  private lazy val renderDiffCache: LoadingCache[RenderCacheKey, Array[Byte]] = {
+    logInfo(s"renderDiffCacheSize: ${renderDiffCacheSize}")
+    CacheBuilder.newBuilder().maximumSize(renderDiffCacheSize).expireAfterAccess(5 * 60 * 12 * 3, TimeUnit.SECONDS).build(new RenderDiffCacheLoader)
+  }
 
   class TableCacheLoader() extends CacheLoader[String, (StructType, Map[String, String])] {
     override def load(tableName: String): (StructType, Map[String, String]) = {
@@ -283,6 +293,10 @@ object SparkService extends Logging {
     if (!initialized) {
       lock.lock()
       try {
+        tableCacheSize = ltdbServerConf.getLong(LTDBServerConf.TABLE_CACHE_SIZE)
+        renderCacheSize = ltdbServerConf.getLong(LTDBServerConf.RENDER_CACHE_SIZE)
+        renderDiffCacheSize = ltdbServerConf.getLong(LTDBServerConf.RENDER_DIFF_CACHE_SIZE)
+
         val master = ltdbServerConf.get("ltdb.spark.master")
         val configs = ltdbServerConf.iterator().asScala.filter(e => {
           !e.getKey.equals("ltdb.spark.master") && (e.getKey.startsWith("ltdb.spark.") || e.getKey.startsWith("ltdb.sql."))

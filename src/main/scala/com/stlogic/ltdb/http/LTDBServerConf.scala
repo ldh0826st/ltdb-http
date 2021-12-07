@@ -34,6 +34,10 @@ object LTDBServerConf {
   val OUTPUT_BUFFER_SIZE = Entry("ltdb.output.buffer.size", 10 * 1024 * 1024)
 
   val RESOURCE_DIRS = Entry("ltdb.http.resource.dirs", "")
+
+  val TABLE_CACHE_SIZE = Entry("ltdb.table.cache.size", 10000L)
+  val RENDER_CACHE_SIZE = Entry("ltdb.render.cache.size", 10000L)
+  val RENDER_DIFF_CACHE_SIZE = Entry("ltdb.render.diff.cache.size", 10000L)
 }
 
 class LTDBServerConf(loadDefaults: Boolean) extends Conf[LTDBServerConf](null) {
