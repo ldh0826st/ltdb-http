@@ -270,7 +270,6 @@
     </dependencies>
 
     <build>
-        <sourceDirectory>${project.basedir}/hive/${spark.version}/src/main/scala</sourceDirectory>
         <resources>
             <resource>
                 <directory>${project.basedir}/conf/site-specs/${site-spec}</directory>
@@ -639,6 +638,7 @@
                                 <configuration>
                                     <sources>
                                         <source>src/main/scala</source>
+                                        <source>hive/${spark.version}/src/main/scala</source>
                                     </sources>
                                 </configuration>
                             </execution>
@@ -958,6 +958,7 @@
                                 <configuration>
                                     <sources>
                                         <source>src/main/scala</source>
+                                        <source>hive/${spark.version}/src/main/scala</source>
                                     </sources>
                                 </configuration>
                             </execution>
