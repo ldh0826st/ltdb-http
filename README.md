@@ -8,7 +8,7 @@
 ## Building
 
 -------------------------
-mvn clean package -DskipTests -P release,dist,tgz -Dsite-spec=``사이트명``
+mvn clean package -DskipTests -P release-yarn,dist-yarn,tgz -Dsite-spec=``사이트명``
 
 * 사이트명은 사이트별 설정을 가르키는 것으로 서비스 포트, Spark 설정, Hadoop 관련 설정 등이 포함
 * conf/site-specs 폴더 참조
@@ -46,7 +46,7 @@ HADOOP_CONF_DIR 설정
 |Key|Default Value|Description|
 |:---|:---|:---|
 |ltdb.http.host|0.0.0.0|IP|
-|ltdb.http.port|8080|Port|
+|ltdb.http.ports|8080|Port (comma seperated)|
 |ltdb.http.request-log-retain.days|5|http request log 유지 기간(일)|
 |ltdb.http.request-log-retain.days|5|http request log 유지 기간(일)|
 |ltdb.spark.master|local[*]|Spark 실행 타입 (local[*], yarn)|
@@ -504,3 +504,50 @@ mapbox gl 수정으로 vectortile request function 사용 가능.
 examples의 heatmap.html 참고
 
 ![img.png](examples/img/heatmap.png)
+
+# Appendix
+
+-------------------------
+
+## Kubernetes
+
+### Maven
+
+-------------------------
+
+properties 설정
+
+```
+<spark.version>${spark.yarn.version}</spark.version> => <spark.version>${spark.k8s.version}</spark.version>
+<json4s.version>${json4s.yarn.version}</json4s.version> => <json4s.version>${json4s.k8s.version}</json4s.version>
+```
+
+### Building
+
+-------------------------
+mvn clean package -DskipTests -P release-k8s,dist-k8s,tgz -Dsite-spec=``사이트명``
+
+### Configuration
+
+-------------------------
+
+#### 2) ltdb-server.conf
+|Key|Value|Description|
+|:---|:---|:---|
+|ltdb.http.resource.dirs|k8s-jars|Spark dependencies jar directory|
+|ltdb.spark.submit.deployMode|client|Spark deploy mode|
+|ltdb.spark.jars|http://``HOST``:``PORT``/k8s-jars/ltdb-http-1.0-SNAPSHOT-with-deps.jar|Spark dependencies jar url|
+|ltdb.spark.kubernetes.container.image|gradiant/spark:2.4.0|Spark docker image|
+|ltdb.spark.kubernetes.namespace|default|Kubernetes namespace|
+|ltdb.spark.driver.host|``HOST``|Spark driver host(API server host)|
+|ltdb.spark.*|-|기타 Spark Config는 ltdb.spark. 을 prefix로 사용|
+
+
+## Hive Metastore Table 생성 방법
+
+-------------------------
+cURL 사용해서 RESTFul API 호출
+* cURL
+  ```bash
+  curl --location --request POST "http://<HOST>:<PORT>/query" --header "Content-Type: text/plain" --data "CREATE TABLE IF NOT EXISTS cam (ID STRING, BBox ARRAY<INT>, Head ARRAY<INT>, Keypoints ARRAY<INT>) USING r2 OPTIONS (host 'st-dstb2-00', port 18100, table '104', mode 'nvkvs', partitions 'ID', rowstore 'false', at_least_one_partition_enabled 'no')"
+  ```
