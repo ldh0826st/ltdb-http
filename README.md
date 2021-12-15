@@ -13,7 +13,7 @@ mvn clean package -DskipTests -P release-yarn,dist-yarn,tgz -Dsite-spec=``사이
 * 사이트명은 사이트별 설정을 가르키는 것으로 서비스 포트, Spark 설정, Hadoop 관련 설정 등이 포함
 * conf/site-specs 폴더 참조
 ```bash
-예) mvn clean package -DskipTests -P release,dist,tgz -Dsite-spec=fbg01
+예) mvn clean package -DskipTests -P release-yarn,dist-yarn,tgz -Dsite-spec=fbg01
 ```
 
 ## Installation
@@ -49,6 +49,8 @@ HADOOP_CONF_DIR 설정
 |ltdb.http.ports|8080|Port (comma seperated)|
 |ltdb.http.request-log-retain.days|5|http request log 유지 기간(일)|
 |ltdb.http.request-log-retain.days|5|http request log 유지 기간(일)|
+|ltdb.render.cache.size|10000|render(vector tile) 캐시 크기|
+|ltdb.render.diff.cache.size|10000|render diff(vector tile) 캐시 크기|
 |ltdb.spark.master|local[*]|Spark 실행 타입 (local[*], yarn)|
 |ltdb.spark.submit.deployMode|client|Spark 실행 타입이 yarn 일 때 사용|
 |ltdb.spark.hadoopUserName|yarn|Spark App 실행 Username|
@@ -546,7 +548,7 @@ mvn clean package -DskipTests -P release-k8s,dist-k8s,tgz -Dsite-spec=``사이�
 ## Hive Metastore Table 생성 방법
 
 -------------------------
-cURL 사용해서 RESTFul API 호출
+cURL 사용, RESTFul API 호출
 * cURL
   ```bash
   curl --location --request POST "http://<HOST>:<PORT>/query" --header "Content-Type: text/plain" --data "CREATE TABLE IF NOT EXISTS cam (ID STRING, BBox ARRAY<INT>, Head ARRAY<INT>, Keypoints ARRAY<INT>) USING r2 OPTIONS (host 'st-dstb2-00', port 18100, table '104', mode 'nvkvs', partitions 'ID', rowstore 'false', at_least_one_partition_enabled 'no')"
